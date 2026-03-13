@@ -1,0 +1,10 @@
+vlmaps/
+data/
+datasets/
+*.tar
+*.zip
+*.pth
+*.ckpt
+__pycache__/
+*.pyc
+.env

@@ -1,0 +1,15 @@
+services:
+  tfg-sim:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: tfg-sim
+    working_dir: /workspace
+    volumes:
+      - ..:/workspace
+      - ../data:/workspace/data
+      - ../results:/workspace/results
+    stdin_open: true
+    tty: true
+    shm_size: "16gb"
+    gpus: all
