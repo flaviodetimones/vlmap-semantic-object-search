@@ -1,0 +1,4 @@
+[submodule "third_party/vlmaps"]
+	path = third_party/vlmaps
+	url = https://github.com/flaviodetimones/vlmaps.git
+	branch = tfg-modifications
