@@ -1,15 +1,55 @@
 services:
+
+  # ── Container 1: core simulation & AI stack ───────────────────────────────
   tfg-sim:
     build:
       context: ..
       dockerfile: docker/Dockerfile
+    image: tfg-sim:latest
     container_name: tfg-sim
     working_dir: /workspace
     volumes:
       - ..:/workspace
-      - ../data:/workspace/data
+      - ../../data:/workspace/data
       - ../results:/workspace/results
+      - ../../vlmaps/vlmaps/lseg/checkpoints:/workspace/third_party/vlmaps/vlmaps/lseg/checkpoints
+      - /tmp/.X11-unix:/tmp/.X11-unix
+    ports:
+      - "8888:8888"
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENAI_KEY=${OPENAI_API_KEY}
+      - DISPLAY=${DISPLAY}
     stdin_open: true
     tty: true
     shm_size: "16gb"
-    gpus: all
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    networks:
+      - tfg-net
+
+  # ── Container 2: ROS Noetic extension (only if time permits) ─────────────
+  ros:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.ros
+    image: tfg-ros:latest
+    container_name: tfg-ros
+    working_dir: /ros_ws
+    volumes:
+      - ..:/workspace               # shared access to project files
+    stdin_open: true
+    tty: true
+    depends_on:
+      - tfg-sim
+    networks:
+      - tfg-net
+
+networks:
+  tfg-net:
+    driver: bridge

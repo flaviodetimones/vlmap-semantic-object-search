@@ -1,0 +1,24 @@
+# Container 2 (ROS extension) — only built if time permits
+FROM ros:noetic-ros-base-focal
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y \
+    python3-pip \
+    python3-rosdep \
+    ros-noetic-navigation \
+    ros-noetic-rosbridge-server \
+    ros-noetic-tf2-ros \
+    ros-noetic-gazebo-ros \
+    && rm -rf /var/lib/apt/lists/*
+
+# habitat-lab provides the Habitat Python API used by ros_x_habitat
+RUN pip3 install habitat-lab==0.3.220241205
+
+WORKDIR /ros_ws
+
+COPY docker/entrypoint_ros.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+ENTRYPOINT ["/entrypoint.sh"]
+CMD ["/bin/bash"]
