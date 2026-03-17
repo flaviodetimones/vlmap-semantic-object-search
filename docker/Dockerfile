@@ -5,7 +5,7 @@ ENV TZ=Europe/Madrid
 ENV CONDA_DIR=/opt/conda
 ENV PATH=$CONDA_DIR/bin:$PATH
 
-# System dependencies
+# System dependencies (including X11/OpenGL for interactive viewer)
 RUN apt-get update && apt-get install -y \
     git \
     wget \
@@ -15,10 +15,17 @@ RUN apt-get update && apt-get install -y \
     cmake \
     pkg-config \
     libgl1-mesa-glx \
+    libgl1-mesa-dri \
     libglib2.0-0 \
     libsm6 \
     libxext6 \
     libxrender-dev \
+    libjpeg-dev \
+    libglm-dev \
+    libegl1-mesa-dev \
+    mesa-utils \
+    xorg-dev \
+    freeglut3-dev \
     ffmpeg \
     unzip \
     ca-certificates \
@@ -31,8 +38,8 @@ RUN wget -q https://github.com/conda-forge/miniforge/releases/latest/download/Mi
     && conda clean -afy
 
 # Create tfg env: habitat-sim 0.3.1 requires Python >=3.9,<3.10
-# Let conda resolve Python version together with habitat-sim to avoid conflicts
-RUN conda create -n tfg habitat-sim=0.3.1 withbullet headless \
+# withbullet: enables physics; no headless flag so OpenGL viewer works via X11
+RUN conda create -n tfg habitat-sim=0.3.1 withbullet \
     -c conda-forge -c aihabitat -y \
     && conda clean -afy
 
