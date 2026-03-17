@@ -1,4 +1,6 @@
 data/
+habitat-sim-repo/
+outputs/
 *.h5df
 *.glb
 *.navmesh
