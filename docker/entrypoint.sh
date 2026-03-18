@@ -62,7 +62,7 @@ if torch.cuda.is_available():
                 echo "  ├─────────────────────────────────────────────────┤"
                 echo "  │  r) Scripts reference (full pipeline overview)  │"
                 echo "  │  s) List available scenes                       │"
-                echo "  │  c) Collect custom dataset (enter path)         │"
+                echo "  │  c) Collect dataset (auto or manual)            │"
                 echo "  │  l) Interactive LLM navigation                  │"
                 echo "  │  b) Back                                        │"
                 echo "  └─────────────────────────────────────────────────┘"
@@ -161,15 +161,35 @@ if torch.cuda.is_available():
                         ;;
                     c|C)
                         echo ""
-                        echo -n "  Enter dataset path (e.g. /workspace/data/my_scene): "
-                        read -r datapath
-                        if [ -z "$datapath" ]; then
-                            echo "  No path provided, cancelled."
+                        echo "  NOTE: requires X11 display. If you get display errors,"
+                        echo "  run on your HOST terminal first:  xhost +local:docker"
+                        echo ""
+                        HABITAT_DIR=/workspace/data/mp3d
+                        echo "  Available MP3D scenes:"
+                        echo "  ────────────────────────────────────────────────────"
+                        if [ -d "$HABITAT_DIR" ]; then
+                            for scene_path in $(find "$HABITAT_DIR" -mindepth 1 -maxdepth 1 -type d | sort); do
+                                echo "    $(basename "$scene_path")"
+                            done
                         else
+                            echo "    (no scenes found at $HABITAT_DIR)"
+                        fi
+                        echo ""
+                        echo "  Output: /workspace/data/vlmaps_dataset/<scene>_<id>/"
+                        echo ""
+                        echo -n "  Enter scene name (or b=back): "
+                        read -r chosen_scene
+                        if [ -z "$chosen_scene" ] || [ "$chosen_scene" = "b" ] || [ "$chosen_scene" = "B" ]; then
+                            echo "  Cancelled."
+                        elif [ -d "$HABITAT_DIR/$chosen_scene" ]; then
                             echo ""
-                            echo "► Running collect_custom_dataset.py with path: $datapath"
+                            echo "► python dataset/collect_custom_dataset.py data_paths=docker scene_names=[\"$chosen_scene\"]"
+                            echo ""
+                            cd /workspace/third_party/vlmaps
                             python "$DATASET/collect_custom_dataset.py" \
-                                data_paths.vlmaps_data_dir="$datapath"
+                                data_paths=docker "scene_names=[\"$chosen_scene\"]"
+                        else
+                            echo "  Scene '$chosen_scene' not found in $HABITAT_DIR."
                         fi
                         ;;
                     l|L)
