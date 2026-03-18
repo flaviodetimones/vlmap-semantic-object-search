@@ -260,9 +260,9 @@ if torch.cuda.is_available():
                         echo -n "  Use GPT-4o Vision refinement? (y/N): "
                         read -r use_refine
                         if [ "$use_refine" = "y" ] || [ "$use_refine" = "Y" ]; then
-                            refine_flag="refine=true"
+                            refine_flag="+refine=true"
                         else
-                            refine_flag="refine=false"
+                            refine_flag="+refine=false"
                         fi
                         echo ""
                         echo "► Pre-labelling room regions for scene $scene..."
