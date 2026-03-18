@@ -65,6 +65,7 @@ if torch.cuda.is_available():
                 echo "  │  c) Collect custom dataset                      │"
                 echo "  │  m) Create VLMap          (scene_id required)   │"
                 echo "  │  i) Index map             (scene_id required)   │"
+                echo "  │  p) Pre-label room regions(scene_id required)   │"
                 echo "  │  l) Interactive LLM navigation                  │"
                 echo "  │  b) Back                                        │"
                 echo "  └─────────────────────────────────────────────────┘"
@@ -236,6 +237,37 @@ if torch.cuda.is_available():
                         echo "► Indexing VLMap for scene_id=$scene..."
                         cd /workspace/third_party/vlmaps
                         python "$APP/index_map.py" data_paths=docker init_categories=true scene_id="$scene"
+                        ;;
+                    p|P)
+                        echo ""
+                        echo "  Available scenes:"
+                        echo "  ─────────────────────────────────────────────────"
+                        SCENES_DIR=/workspace/data/vlmaps_dataset
+                        if [ -d "$SCENES_DIR" ]; then
+                            i=0
+                            while IFS= read -r dir; do
+                                echo "    scene_id=$i  →  $(basename "$dir")"
+                                i=$((i+1))
+                            done < <(find "$SCENES_DIR" -mindepth 1 -maxdepth 1 -type d | sort)
+                        else
+                            echo "    (data directory not found)"
+                        fi
+                        echo ""
+                        echo -n "  scene_id to pre-label (default 0): "
+                        read -r scene
+                        scene=${scene:-0}
+                        echo ""
+                        echo -n "  Use GPT-4o Vision refinement? (y/N): "
+                        read -r use_refine
+                        if [ "$use_refine" = "y" ] || [ "$use_refine" = "Y" ]; then
+                            refine_flag="refine=true"
+                        else
+                            refine_flag="refine=false"
+                        fi
+                        echo ""
+                        echo "► Pre-labelling room regions for scene $scene..."
+                        cd /workspace/third_party/vlmaps
+                        python "$APP/build_room_map.py" data_paths=docker scene_id="$scene" "$refine_flag"
                         ;;
                     l|L)
                         echo ""
