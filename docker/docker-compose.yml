@@ -33,22 +33,23 @@ services:
     networks:
       - tfg-net
 
-  # ── Container 2: ROS Noetic extension (only if time permits) ─────────────
-  ros:
-    build:
-      context: ..
-      dockerfile: docker/Dockerfile.ros
-    image: tfg-ros:latest
-    container_name: tfg-ros
-    working_dir: /ros_ws
-    volumes:
-      - ..:/workspace               # shared access to project files
-    stdin_open: true
-    tty: true
-    depends_on:
-      - tfg-sim
-    networks:
-      - tfg-net
+  # ── Container 2: ROS Noetic extension (disabled until post-W8) ───────────
+  # Uncomment when ROS integration is needed.
+  # ros:
+  #   build:
+  #     context: ..
+  #     dockerfile: docker/Dockerfile.ros
+  #   image: tfg-ros:latest
+  #   container_name: tfg-ros
+  #   working_dir: /ros_ws
+  #   volumes:
+  #     - ..:/workspace
+  #   stdin_open: true
+  #   tty: true
+  #   depends_on:
+  #     - tfg-sim
+  #   networks:
+  #     - tfg-net
 
 networks:
   tfg-net:
