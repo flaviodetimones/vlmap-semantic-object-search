@@ -22,3 +22,4 @@ results/*.npy
 .ipynb_checkpoints/
 logs/
 *.log
+habitat-sim/
