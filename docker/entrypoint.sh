@@ -62,7 +62,9 @@ if torch.cuda.is_available():
                 echo "  ├─────────────────────────────────────────────────┤"
                 echo "  │  r) Scripts reference (full pipeline overview)  │"
                 echo "  │  s) List available scenes                       │"
-                echo "  │  c) Collect dataset (auto or manual)            │"
+                echo "  │  c) Collect custom dataset                      │"
+                echo "  │  m) Create VLMap          (scene_id required)   │"
+                echo "  │  i) Index map             (scene_id required)   │"
                 echo "  │  l) Interactive LLM navigation                  │"
                 echo "  │  b) Back                                        │"
                 echo "  └─────────────────────────────────────────────────┘"
@@ -188,6 +190,52 @@ if torch.cuda.is_available():
                         else
                             echo "  Scene '$chosen_scene' not found in $HABITAT_DIR."
                         fi
+                        ;;
+                    m|M)
+                        echo ""
+                        echo "  Available scenes:"
+                        echo "  ─────────────────────────────────────────────────"
+                        SCENES_DIR=/workspace/data/vlmaps_dataset
+                        if [ -d "$SCENES_DIR" ]; then
+                            i=0
+                            while IFS= read -r dir; do
+                                echo "    scene_id=$i  →  $(basename "$dir")"
+                                i=$((i+1))
+                            done < <(find "$SCENES_DIR" -mindepth 1 -maxdepth 1 -type d | sort)
+                        else
+                            echo "    (data directory not found)"
+                        fi
+                        echo ""
+                        echo -n "  scene_id to build (default 0): "
+                        read -r scene
+                        scene=${scene:-0}
+                        echo ""
+                        echo "► Building VLMap for scene_id=$scene..."
+                        cd /workspace/third_party/vlmaps
+                        python "$APP/create_map.py" data_paths=docker scene_id="$scene"
+                        ;;
+                    i|I)
+                        echo ""
+                        echo "  Available scenes:"
+                        echo "  ─────────────────────────────────────────────────"
+                        SCENES_DIR=/workspace/data/vlmaps_dataset
+                        if [ -d "$SCENES_DIR" ]; then
+                            i=0
+                            while IFS= read -r dir; do
+                                echo "    scene_id=$i  →  $(basename "$dir")"
+                                i=$((i+1))
+                            done < <(find "$SCENES_DIR" -mindepth 1 -maxdepth 1 -type d | sort)
+                        else
+                            echo "    (data directory not found)"
+                        fi
+                        echo ""
+                        echo -n "  scene_id to index (default 0): "
+                        read -r scene
+                        scene=${scene:-0}
+                        echo ""
+                        echo "► Indexing VLMap for scene_id=$scene..."
+                        cd /workspace/third_party/vlmaps
+                        python "$APP/index_map.py" data_paths=docker init_categories=true scene_id="$scene"
                         ;;
                     l|L)
                         echo ""
