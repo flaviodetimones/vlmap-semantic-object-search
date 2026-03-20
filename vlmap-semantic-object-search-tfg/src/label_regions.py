@@ -132,6 +132,12 @@ def get_regions(scene_name, mp3d_dir):
     cfg = habitat_sim.Configuration(backend_cfg, [habitat_sim.agent.AgentConfiguration()])
     sim = habitat_sim.Simulator(cfg)
 
+    print(f"Levels in scene ({len(sim.semantic_scene.levels)}):")
+    for lvl in sim.semantic_scene.levels:
+        region_names = [MP3D_REGION_LABELS.get(r.category.name().strip(), r.category.name()).lower().split("/")[0].strip()
+                        for r in lvl.regions]
+        print(f"  level {lvl.id}  center_y={lvl.aabb.center[1]:.2f}  regions={region_names}")
+
     regions = []
     for region in sim.semantic_scene.regions:
         raw = region.category.name().strip()
@@ -140,12 +146,13 @@ def get_regions(scene_name, mp3d_dir):
         name = name.split("/")[0].strip()  # drop e.g. "terrace/deck" from "porch/terrace/deck"
         if name in _SKIP:
             continue
+        level_id = str(region.level.id).strip() if region.level is not None else "?"
         center = np.array(region.aabb.center)  # SemanticScene coords
         # SemanticScene X = Habitat Z, SemanticScene Z = Habitat X
         hab_x = float(center[2])
         hab_y = float(center[1])
         hab_z = float(center[0])
-        regions.append({"name": name, "hab_x": hab_x, "hab_y": hab_y, "hab_z": hab_z})
+        regions.append({"name": name, "level": level_id, "hab_x": hab_x, "hab_y": hab_y, "hab_z": hab_z})
 
     sim.close()
     print(f"Regions found: {len(regions)}")
@@ -153,13 +160,18 @@ def get_regions(scene_name, mp3d_dir):
 
 
 def world_to_nearest_grid(hab_x, hab_z, grid_pos, obstacle_map):
-    """Find the navigable grid cell closest (XZ) to a Habitat world position."""
+    """Find the navigable grid cell closest (XZ) to a Habitat world position.
+
+    Returns (row, col, dist_m) where dist_m is the XZ distance in metres
+    between the original world position and the snapped navigable cell.
+    """
     nav_rows, nav_cols = np.where(obstacle_map)
     nav_world = grid_pos[nav_rows, nav_cols]  # (N, 3)
     diff = nav_world[:, [0, 2]] - np.array([hab_x, hab_z])
     dists = (diff ** 2).sum(axis=1)
     idx = dists.argmin()
-    return int(nav_rows[idx]), int(nav_cols[idx])
+    dist_m = float(np.sqrt(dists[idx]))
+    return int(nav_rows[idx]), int(nav_cols[idx]), dist_m
 
 
 def main():
@@ -182,24 +194,26 @@ def main():
     # ── Get Habitat regions ──────────────────────────────────────────────
     regions = get_regions(scene_name, args.mp3d_dir)
 
-    # ── Filter to ground floor (match robot's Y level) ───────────────────
-    nav_rows_all, nav_cols_all = np.where(obstacle_map)
-    nav_ys = grid_pos[nav_rows_all, nav_cols_all][:, 1]
-    floor_y = float(np.median(nav_ys))
-    print(f"Floor Y (median): {floor_y:.2f}")
-    print(f"All region Y values:")
+    # ── Filter to ground floor using MP3D level index ────────────────────
+    print(f"All regions by level:")
     for r in regions:
-        print(f"  {r['name']:25s}  Y={r['hab_y']:.2f}  diff={abs(r['hab_y']-floor_y):.2f}")
+        print(f"  level={r['level']}  {r['name']}")
 
-    floor_regions = [r for r in regions if abs(r["hab_y"] - floor_y) < 2.0]
-    print(f"Floor regions: {len(floor_regions)} (of {len(regions)} total)")
+    floor_regions = [r for r in regions if r["level"] == "0"]
+    print(f"Floor regions (level=0): {len(floor_regions)} (of {len(regions)} total)")
 
     # ── Map each centroid to nearest navigable grid cell ─────────────────
+    # Discard regions whose centroid is more than MAX_SNAP_M metres away from
+    # any navigable cell — those are in walls / furniture / off-floor areas.
+    MAX_SNAP_M = 2.0
     labeled = []
     for r in floor_regions:
-        row, col = world_to_nearest_grid(r["hab_x"], r["hab_z"], grid_pos, obstacle_map)
+        row, col, dist = world_to_nearest_grid(r["hab_x"], r["hab_z"], grid_pos, obstacle_map)
+        if dist > MAX_SNAP_M:
+            print(f"  {r['name']:20s}  -> SKIPPED (snap dist {dist:.2f} m > {MAX_SNAP_M} m)")
+            continue
         labeled.append({"name": r["name"], "row": row, "col": col})
-        print(f"  {r['name']:20s}  -> grid ({row}, {col})")
+        print(f"  {r['name']:20s}  -> grid ({row}, {col})  snap={dist:.2f} m")
 
     # ── Crop to building footprint ───────────────────────────────────────
     nav_r, nav_c = np.where(obstacle_map)
