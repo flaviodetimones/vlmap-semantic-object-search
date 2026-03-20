@@ -269,6 +269,15 @@ def main():
     print(f"\nSaved -> {out_path.resolve()}")
     print(f"On host: ~/tfg/data/vlmaps_dataset/{scene_dir.name}/{vlmap_dir.name}/region_centroids.png")
 
+    # ── Save centroids for evaluation ────────────────────────────────────
+    if labeled:
+        import json
+        rm_dir = vlmap_dir / "room_map"
+        rm_dir.mkdir(parents=True, exist_ok=True)
+        with open(rm_dir / "centroids_gt.json", "w") as f:
+            json.dump(labeled, f, indent=2)
+        print(f"Saved {len(labeled)} GT centroids to {rm_dir / 'centroids_gt.json'}")
+
     # Open with OpenCV (press any key to close)
     img_bgr = cv2.imread(str(out_path))
     if img_bgr is not None:

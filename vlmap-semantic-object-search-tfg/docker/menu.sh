@@ -55,7 +55,7 @@ if torch.cuda.is_available():
                 echo "  │  c) Collect custom dataset                      │"
                 echo "  │  m) Create VLMap          (scene_id required)   │"
                 echo "  │  i) Index map             (scene_id required)   │"
-                echo "  │  g) Region centroids map  (scene_id required)   │"
+                echo "  │  g) Region centroids       (scene_id required)  │"
                 echo "  │  l) Interactive LLM navigation                  │"
                 echo "  │  b) Back                                        │"
                 echo "  └─────────────────────────────────────────────────┘"
