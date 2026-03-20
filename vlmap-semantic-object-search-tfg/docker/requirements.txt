@@ -1,10 +1,48 @@
+# Utilities
+gdown
+hydra-core
+omegaconf
+
+# Core scientific stack
 numpy
 scipy
 matplotlib
 pandas
-opencv-python
-jupyter
-pyyaml
 tqdm
-torch
-torchvision
+Pillow
+pyyaml
+h5py
+imageio
+imageio-ffmpeg
+networkx
+shapely
+
+# CV / perception
+opencv-python-headless   # headless: no display needed inside container
+open3d
+grad-cam
+
+# Jupyter
+jupyter
+ipykernel
+ipywidgets
+
+# Habitat task layer (habitat-sim installed via conda)
+habitat-lab==0.3.220241205
+
+# Language-vision models
+git+https://github.com/openai/CLIP.git   # used by VLMaps / LSeg
+
+# LSeg dependencies
+pytorch-lightning>=1.8,<2.0
+timm==0.6.12
+tensorboardX
+
+# Navigation utilities
+pyvisgraph
+sentence_transformers
+
+openai
+
+# YOLOE (open-vocabulary detection, built on ultralytics)
+ultralytics
