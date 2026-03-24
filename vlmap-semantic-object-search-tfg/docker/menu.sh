@@ -55,7 +55,6 @@ if torch.cuda.is_available():
                 echo "  │  c) Collect custom dataset                      │"
                 echo "  │  m) Create VLMap          (scene_id required)   │"
                 echo "  │  i) Index map             (scene_id required)   │"
-                echo "  │  g) Region centroids       (scene_id required)  │"
                 echo "  │  l) Interactive LLM navigation                  │"
                 echo "  │  b) Back                                        │"
                 echo "  └─────────────────────────────────────────────────┘"
@@ -199,32 +198,6 @@ if torch.cuda.is_available():
                         echo "► Indexing VLMap for scene_id=$scene..."
                         cd /workspace/third_party/vlmaps
                         python "$APP/index_map.py" data_paths=docker init_categories=true scene_id="$scene"
-                        ;;
-                    g|G)
-                        echo ""
-                        echo "  Available scenes:"
-                        echo "  ─────────────────────────────────────────────────"
-                        SCENES_DIR=/workspace/data/vlmaps_dataset
-                        if [ -d "$SCENES_DIR" ]; then
-                            i=0
-                            while IFS= read -r dir; do
-                                echo "    scene_id=$i  →  $(basename "$dir")"
-                                i=$((i+1))
-                            done < <(find "$SCENES_DIR" -mindepth 1 -maxdepth 1 -type d | sort)
-                        else
-                            echo "    (data directory not found)"
-                        fi
-                        echo ""
-                        echo -n "  scene_id (default 0): "
-                        read -r scene
-                        scene=${scene:-0}
-                        echo ""
-                        echo "► Labeling MP3D region centroids for scene_id=$scene..."
-                        cd /workspace
-                        python src/label_regions.py \
-                            --scene_id "$scene" \
-                            --data_dir /workspace/data \
-                            --mp3d_dir /workspace/data/mp3d
                         ;;
                     l|L)
                         echo ""
