@@ -56,6 +56,8 @@ if torch.cuda.is_available():
                 echo "  │  m) Create VLMap          (scene_id required)   │"
                 echo "  │  i) Index map             (scene_id required)   │"
                 echo "  │  l) Interactive LLM navigation                  │"
+                echo "  │  g) Generate obstacle map image                 │"
+                echo "  │  n) Label rooms (LabelMe → room_map)            │"
                 echo "  │  b) Back                                        │"
                 echo "  └─────────────────────────────────────────────────┘"
                 echo -n "  Select: "
@@ -228,6 +230,100 @@ if torch.cuda.is_available():
                         echo ""
                         python "$APP/interactive_object_nav.py" data_paths=docker scene_id="$scene"
                         ;;
+                    g|G)
+                        echo ""
+                        echo "  Available scenes:"
+                        echo "  ─────────────────────────────────────────────────"
+                        SCENES_DIR=/workspace/data/vlmaps_dataset
+                        if [ -d "$SCENES_DIR" ]; then
+                            i=0
+                            while IFS= read -r dir; do
+                                HAS_MAP=""
+                                [ -f "$dir/obstacle_map.png" ] && HAS_MAP=" [map ready]"
+                                echo "    scene_id=$i  →  $(basename "$dir")$HAS_MAP"
+                                i=$((i+1))
+                            done < <(find "$SCENES_DIR" -mindepth 1 -maxdepth 1 -type d | sort)
+                        fi
+                        echo ""
+                        echo -n "  scene_id (default 0): "
+                        read -r scene
+                        scene=${scene:-0}
+                        echo ""
+                        echo "► Generating obstacle map images for scene $scene..."
+                        cd /workspace/third_party/vlmaps
+                        python "$APP/generate_obstacle_map_png.py" \
+                            data_paths=docker scene_id="$scene"
+                        ;;
+                    n|N)
+                        echo ""
+                        echo "  ╔═══════════════════════════════════════════════════╗"
+                        echo "  ║           Room Labeling Workflow                  ║"
+                        echo "  ╠═══════════════════════════════════════════════════╣"
+                        echo "  ║  Step 1: Generate obstacle map (option g)         ║"
+                        echo "  ║  Step 2: LabelMe opens → draw room polygons       ║"
+                        echo "  ║  Step 3: Save in LabelMe (Ctrl+S), then close     ║"
+                        echo "  ║  Step 4: Automatic conversion to room_map         ║"
+                        echo "  ╠═══════════════════════════════════════════════════╣"
+                        echo "  ║  TIPS:                                            ║"
+                        echo "  ║  • Use Polygon tool (not Rectangle)               ║"
+                        echo "  ║  • Draw LARGE polygons covering the whole room    ║"
+                        echo "  ║  • Labels: living_room  bedroom  kitchen          ║"
+                        echo "  ║    bathroom  office  hallway  dining_room         ║"
+                        echo "  ║  • Multiple rooms same type: bedroom_1 bedroom_2  ║"
+                        echo "  ╚═══════════════════════════════════════════════════╝"
+                        echo ""
+                        echo "  Available scenes:"
+                        echo "  ─────────────────────────────────────────────────"
+                        SCENES_DIR=/workspace/data/vlmaps_dataset
+                        if [ -d "$SCENES_DIR" ]; then
+                            i=0
+                            while IFS= read -r dir; do
+                                HAS_MAP=""
+                                ( [ -f "$dir/topdown_labeled.png" ] || [ -f "$dir/obstacle_map.png" ] ) && HAS_MAP=" [map ready]"
+                                HAS_ROOMS=""
+                                [ -f "$dir/room_map/room_map.npy" ] && HAS_ROOMS=" [rooms labeled]"
+                                echo "    scene_id=$i  →  $(basename "$dir")$HAS_MAP$HAS_ROOMS"
+                                i=$((i+1))
+                            done < <(find "$SCENES_DIR" -mindepth 1 -maxdepth 1 -type d | sort)
+                        fi
+                        echo ""
+                        echo -n "  scene_id (default 0): "
+                        read -r scene
+                        scene=${scene:-0}
+                        SCENE_DIR=$(find "$SCENES_DIR" -mindepth 1 -maxdepth 1 -type d | sort | sed -n "$((scene+1))p")
+                        if [ -z "$SCENE_DIR" ]; then
+                            echo "  Scene not found."
+                        else
+                            MAP_IMG="$SCENE_DIR/topdown_labeled.png"
+                            [ ! -f "$MAP_IMG" ] && MAP_IMG="$SCENE_DIR/obstacle_map.png"
+                            if [ ! -f "$MAP_IMG" ]; then
+                                echo "  Map image not found. Run option 'g' first."
+                            else
+                                LABEL_JSON="$SCENE_DIR/room_map/room_labels.json"
+                                mkdir -p "$SCENE_DIR/room_map"
+                                echo ""
+                                echo "► Opening LabelMe... (draw polygons, Ctrl+S to save, then close)"
+                                echo "  Image: $MAP_IMG"
+                                echo "  Output JSON: $LABEL_JSON"
+                                echo ""
+                                LD_PRELOAD=/opt/conda/envs/tfg/lib/libstdc++.so.6 \
+                                    labelme "$MAP_IMG" \
+                                    --output "$LABEL_JSON" \
+                                    --autosave \
+                                    --nodata
+                                if [ -f "$LABEL_JSON" ]; then
+                                    echo ""
+                                    echo "► Converting LabelMe JSON → room_map..."
+                                    cd /workspace/third_party/vlmaps
+                                    python application/labelme_to_room_map.py \
+                                        --json "$LABEL_JSON" \
+                                        --scene "$SCENE_DIR"
+                                else
+                                    echo "  No JSON saved (LabelMe closed without saving)."
+                                fi
+                            fi
+                        fi
+                        ;;
                     b|B)
                         break
                         ;;
@@ -248,6 +344,12 @@ if torch.cuda.is_available():
             echo "► Installing/updating dependencies from requirements.txt..."
             if [ -f /workspace/docker/requirements.txt ]; then
                 pip install -r /workspace/docker/requirements.txt
+                # Patch labelme 5.10.1: np.bool removed in NumPy >=1.24
+                LABELME_FILE=/opt/conda/envs/tfg/lib/python3.9/site-packages/labelme/_label_file.py
+                if [ -f "$LABELME_FILE" ]; then
+                    sed -i 's/NDArray\[np\.bool\]/NDArray[np.bool_]/g' "$LABELME_FILE"
+                    echo "  labelme np.bool patch applied."
+                fi
             else
                 echo "  /workspace/docker/requirements.txt not found."
             fi
