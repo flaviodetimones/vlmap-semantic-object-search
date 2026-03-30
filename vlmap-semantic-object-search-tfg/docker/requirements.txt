@@ -4,7 +4,7 @@ hydra-core
 omegaconf
 
 # Core scientific stack
-numpy
+numpy>=1.17.0,<2          # <2 required: habitat-sim/quaternion compiled against NumPy 1.x
 scipy
 matplotlib
 pandas
@@ -18,7 +18,7 @@ networkx
 shapely
 
 # CV / perception
-opencv-python-headless   # headless: no display needed inside container
+opencv-python==4.8.1.78  # pinned: 4.9+ requires numpy>=2 which breaks habitat-sim
 open3d
 grad-cam
 
