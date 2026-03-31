@@ -45,19 +45,48 @@ if torch.cuda.is_available():
                 | sort | sed 's|/workspace/||; s|^|  |'
             ;;
         3)
+            # ── Dataset selection ─────────────────────────────────────────
+            echo ""
+            echo "  ┌─────────────────────────────────────────────────┐"
+            echo "  │              Select dataset                     │"
+            echo "  ├─────────────────────────────────────────────────┤"
+            echo "  │  1) MP3D  (Matterport3D — escenas reales)       │"
+            echo "  │  2) HSSD  (Habitat Static Scene Dataset)        │"
+            echo "  └─────────────────────────────────────────────────┘"
+            echo -n "  Dataset (1/2, default 1): "
+            read -r ds_choice
+            ds_choice=${ds_choice:-1}
+
+            if [ "$ds_choice" = "2" ]; then
+                DATASET_TYPE="hssd"
+                DATA_PATHS="hssd"
+                SCENES_DIR=/workspace/data/vlmaps_dataset_hssd
+                HSSD_CFG=/workspace/data/versioned_data/hssd-hab/hssd-hab.scene_dataset_config.json
+                NAV_EXTRA="dataset_type=hssd +scene_dataset_config_file=$HSSD_CFG"
+                DS_LABEL="HSSD"
+            else
+                DATASET_TYPE="mp3d"
+                DATA_PATHS="docker"
+                SCENES_DIR=/workspace/data/vlmaps_dataset
+                NAV_EXTRA=""
+                DS_LABEL="MP3D"
+            fi
+
             while true; do
                 echo ""
                 echo "  ┌─────────────────────────────────────────────────┐"
-                echo "  │              VLMaps Pipeline                    │"
+                echo "  │       VLMaps Pipeline  [$DS_LABEL]$([ "$DS_LABEL" = "MP3D" ] && echo "                  " || echo "                 ")│"
                 echo "  ├─────────────────────────────────────────────────┤"
                 echo "  │  r) Scripts reference (full pipeline overview)  │"
                 echo "  │  s) List available scenes                       │"
-                echo "  │  c) Collect custom dataset                      │"
+                echo "  │  c) Collect dataset                             │"
                 echo "  │  m) Create VLMap          (scene_id required)   │"
                 echo "  │  i) Index map             (scene_id required)   │"
                 echo "  │  l) Interactive LLM navigation                  │"
                 echo "  │  g) Generate obstacle map image                 │"
+                if [ "$DATASET_TYPE" = "mp3d" ]; then
                 echo "  │  n) Label rooms (LabelMe → room_map)            │"
+                fi
                 echo "  │  b) Back                                        │"
                 echo "  └─────────────────────────────────────────────────┘"
                 echo -n "  Select: "
@@ -67,47 +96,57 @@ if torch.cuda.is_available():
                     r|R)
                         echo ""
                         echo "════════════════════════════════════════════════════════════════"
-                        echo "  VLMaps Pipeline — Scripts Reference"
+                        echo "  VLMaps Pipeline — Scripts Reference  [$DS_LABEL]"
                         echo "════════════════════════════════════════════════════════════════"
                         echo ""
+                        if [ "$DATASET_TYPE" = "hssd" ]; then
+                        echo "  ── Step 0 · Collect dataset (navegación manual) ─────────────"
+                        echo ""
+                        echo "    python $DATASET/collect_hssd_dataset.py \\"
+                        echo "        --scene_dataset_config $HSSD_CFG \\"
+                        echo "        --scene_id 102344280"
+                        echo ""
+                        echo "  ── Step 1 · Create VLMap ────────────────────────────────────"
+                        echo ""
+                        echo "    python $APP/create_map.py data_paths=hssd scene_id=0"
+                        echo ""
+                        echo "  ── Step 2 · Index map ───────────────────────────────────────"
+                        echo ""
+                        echo "    python $APP/index_map.py data_paths=hssd init_categories=true scene_id=0"
+                        echo ""
+                        echo "  ── Step 3 · Interactive LLM navigation ──────────────────────"
+                        echo ""
+                        echo "    python $APP/interactive_object_nav.py data_paths=hssd scene_id=0 \\"
+                        echo "        dataset_type=hssd \\"
+                        echo "        +scene_dataset_config_file=$HSSD_CFG"
+                        else
                         echo "  All scripts use Hydra. Run them from inside the container."
-                        echo "  data_paths=docker always required to use /workspace/data paths."
-                        echo "  Config files: third_party/vlmaps/config/"
+                        echo "  data_paths=docker uses /workspace/data paths."
                         echo ""
                         echo "  ── Step 0 · Collect dataset ─────────────────────────────────"
-                        echo "  Collect a Habitat-Sim dataset (RGB-D + poses) for a scene."
                         echo ""
                         echo "    python $DATASET/collect_custom_dataset.py data_paths=docker \\"
                         echo "        scene_names=[\"SceneName\"]"
                         echo ""
                         echo "  ── Step 1 · Create VLMap ────────────────────────────────────"
-                        echo "  Build the language-grounded 3-D voxel map from the dataset."
                         echo ""
                         echo "    python $APP/create_map.py data_paths=docker scene_id=0"
                         echo ""
-                        echo "  ── Step 2 · Index map (semantic query) ──────────────────────"
-                        echo "  Load a saved VLMap and query it with a text category."
+                        echo "  ── Step 2 · Index map ───────────────────────────────────────"
                         echo ""
                         echo "    python $APP/index_map.py data_paths=docker init_categories=true scene_id=0"
                         echo ""
-                        echo "  ── Step 3 · Interactive LLM navigation (GPT-4o-mini) ────────"
-                        echo "  Type a natural-language instruction, the robot navigates live."
-                        echo "  Requires: OPENAI_API_KEY env var set."
+                        echo "  ── Step 3 · Interactive LLM navigation ──────────────────────"
                         echo ""
                         echo "    python $APP/interactive_object_nav.py data_paths=docker scene_id=0"
-                        echo ""
-                        echo "  ── Utilities ────────────────────────────────────────────────"
-                        echo "    python $APP/generate_object_nav_tasks.py data_paths=docker"
-                        echo "    python $APP/generate_obstacle_map.py data_paths=docker scene_id=0"
-                        echo "    python $APP/evaluation/evaluate_object_goal_navigation.py data_paths=docker"
+                        fi
                         echo ""
                         echo "════════════════════════════════════════════════════════════════"
                         ;;
                     s|S)
                         echo ""
-                        echo "  Available scenes:"
+                        echo "  Available scenes [$DS_LABEL]:"
                         echo "  ─────────────────────────────────────────────────"
-                        SCENES_DIR=/workspace/data/vlmaps_dataset
                         if [ -d "$SCENES_DIR" ]; then
                             i=0
                             while IFS= read -r dir; do
@@ -115,51 +154,74 @@ if torch.cuda.is_available():
                                 i=$((i+1))
                             done < <(find "$SCENES_DIR" -mindepth 1 -maxdepth 1 -type d | sort)
                             if [ "$i" -eq 0 ]; then
-                                echo "    (no scene folders found)"
+                                echo "    (no scene folders found in $SCENES_DIR)"
                             fi
                         else
                             echo "    Directory not found: $SCENES_DIR"
-                            echo "    Make sure the data volume is mounted."
                         fi
                         ;;
                     c|C)
                         echo ""
-                        echo "  NOTE: requires X11 display. If you get display errors,"
-                        echo "  run on your HOST terminal first:  xhost +local:docker"
+                        echo "  NOTE: requires X11 display (xhost +local:docker on host if needed)"
                         echo ""
-                        HABITAT_DIR=/workspace/data/mp3d
-                        echo "  Available MP3D scenes:"
-                        echo "  ────────────────────────────────────────────────────"
-                        if [ -d "$HABITAT_DIR" ]; then
-                            for scene_path in $(find "$HABITAT_DIR" -mindepth 1 -maxdepth 1 -type d | sort); do
-                                echo "    $(basename "$scene_path")"
-                            done
+                        if [ "$DATASET_TYPE" = "hssd" ]; then
+                            if [ ! -f "$HSSD_CFG" ]; then
+                                echo "  ERROR: HSSD dataset config not found: $HSSD_CFG"
+                                echo "  Run:  apt-get install -y git-lfs && git lfs install"
+                                echo "        cd /workspace/data/versioned_data/hssd-hab && git lfs pull"
+                            else
+                                echo "  Scene: 102344280  (15 habitaciones, ~447m²)"
+                                echo "  Output: $SCENES_DIR/102344280_1/"
+                                echo ""
+                                echo "  Controls: w=forward  a=left  d=right  q=quit"
+                                echo "  Each movement auto-saves RGB + depth + pose."
+                                echo "  Aim for 500+ frames covering all rooms."
+                                echo ""
+                                echo -n "  scene_id to collect (default 102344280): "
+                                read -r hssd_scene
+                                hssd_scene=${hssd_scene:-102344280}
+                                echo ""
+                                echo "► python dataset/collect_hssd_dataset.py --scene_id $hssd_scene"
+                                echo ""
+                                cd /workspace/third_party/vlmaps
+                                python "$DATASET/collect_hssd_dataset.py" \
+                                    --scene_dataset_config "$HSSD_CFG" \
+                                    --scene_id "$hssd_scene"
+                            fi
                         else
-                            echo "    (no scenes found at $HABITAT_DIR)"
-                        fi
-                        echo ""
-                        echo "  Output: /workspace/data/vlmaps_dataset/<scene>_<id>/"
-                        echo ""
-                        echo -n "  Enter scene name (or b=back): "
-                        read -r chosen_scene
-                        if [ -z "$chosen_scene" ] || [ "$chosen_scene" = "b" ] || [ "$chosen_scene" = "B" ]; then
-                            echo "  Cancelled."
-                        elif [ -d "$HABITAT_DIR/$chosen_scene" ]; then
+                            HABITAT_DIR=/workspace/data/mp3d
+                            echo "  Available MP3D scenes:"
+                            echo "  ────────────────────────────────────────────────────"
+                            if [ -d "$HABITAT_DIR" ]; then
+                                for scene_path in $(find "$HABITAT_DIR" -mindepth 1 -maxdepth 1 -type d | sort); do
+                                    echo "    $(basename "$scene_path")"
+                                done
+                            else
+                                echo "    (no scenes found at $HABITAT_DIR)"
+                            fi
                             echo ""
-                            echo "► python dataset/collect_custom_dataset.py data_paths=docker scene_names=[\"$chosen_scene\"]"
+                            echo "  Output: /workspace/data/vlmaps_dataset/<scene>_<id>/"
                             echo ""
-                            cd /workspace/third_party/vlmaps
-                            python "$DATASET/collect_custom_dataset.py" \
-                                data_paths=docker "scene_names=[\"$chosen_scene\"]"
-                        else
-                            echo "  Scene '$chosen_scene' not found in $HABITAT_DIR."
+                            echo -n "  Enter scene name (or b=back): "
+                            read -r chosen_scene
+                            if [ -z "$chosen_scene" ] || [ "$chosen_scene" = "b" ] || [ "$chosen_scene" = "B" ]; then
+                                echo "  Cancelled."
+                            elif [ -d "$HABITAT_DIR/$chosen_scene" ]; then
+                                echo ""
+                                echo "► python dataset/collect_custom_dataset.py data_paths=docker scene_names=[\"$chosen_scene\"]"
+                                echo ""
+                                cd /workspace/third_party/vlmaps
+                                python "$DATASET/collect_custom_dataset.py" \
+                                    data_paths=docker "scene_names=[\"$chosen_scene\"]"
+                            else
+                                echo "  Scene '$chosen_scene' not found in $HABITAT_DIR."
+                            fi
                         fi
                         ;;
                     m|M)
                         echo ""
-                        echo "  Available scenes:"
+                        echo "  Available scenes [$DS_LABEL]:"
                         echo "  ─────────────────────────────────────────────────"
-                        SCENES_DIR=/workspace/data/vlmaps_dataset
                         if [ -d "$SCENES_DIR" ]; then
                             i=0
                             while IFS= read -r dir; do
@@ -174,15 +236,14 @@ if torch.cuda.is_available():
                         read -r scene
                         scene=${scene:-0}
                         echo ""
-                        echo "► Building VLMap for scene_id=$scene..."
+                        echo "► Building VLMap for scene_id=$scene  [$DS_LABEL]..."
                         cd /workspace/third_party/vlmaps
-                        python "$APP/create_map.py" data_paths=docker scene_id="$scene"
+                        python "$APP/create_map.py" data_paths="$DATA_PATHS" scene_id="$scene"
                         ;;
                     i|I)
                         echo ""
-                        echo "  Available scenes:"
+                        echo "  Available scenes [$DS_LABEL]:"
                         echo "  ─────────────────────────────────────────────────"
-                        SCENES_DIR=/workspace/data/vlmaps_dataset
                         if [ -d "$SCENES_DIR" ]; then
                             i=0
                             while IFS= read -r dir; do
@@ -197,9 +258,9 @@ if torch.cuda.is_available():
                         read -r scene
                         scene=${scene:-0}
                         echo ""
-                        echo "► Indexing VLMap for scene_id=$scene..."
+                        echo "► Indexing VLMap for scene_id=$scene  [$DS_LABEL]..."
                         cd /workspace/third_party/vlmaps
-                        python "$APP/index_map.py" data_paths=docker init_categories=true scene_id="$scene"
+                        python "$APP/index_map.py" data_paths="$DATA_PATHS" init_categories=true scene_id="$scene"
                         ;;
                     l|L)
                         echo ""
@@ -207,9 +268,8 @@ if torch.cuda.is_available():
                             echo "  WARNING: OPENAI_API_KEY is not set. The script will fail."
                             echo "  Set it with: export OPENAI_API_KEY=sk-..."
                         fi
-                        echo "  Available scenes:"
+                        echo "  Available scenes [$DS_LABEL]:"
                         echo "  ─────────────────────────────────────────────────"
-                        SCENES_DIR=/workspace/data/vlmaps_dataset
                         if [ -d "$SCENES_DIR" ]; then
                             i=0
                             while IFS= read -r dir; do
@@ -224,17 +284,17 @@ if torch.cuda.is_available():
                         read -r scene
                         scene=${scene:-0}
                         echo ""
-                        echo "► Launching interactive LLM navigation (scene $scene)..."
-                        echo "  Type instructions at the prompt. Press any key in the OpenCV window to advance."
-                        echo "  Type 'quit' or 'exit' to stop."
+                        echo "► Launching interactive LLM navigation (scene $scene)  [$DS_LABEL]..."
+                        echo "  Type instructions at the prompt. Type 'quit' to stop."
                         echo ""
-                        python "$APP/interactive_object_nav.py" data_paths=docker scene_id="$scene"
+                        cd /workspace/third_party/vlmaps
+                        python "$APP/interactive_object_nav.py" \
+                            data_paths="$DATA_PATHS" scene_id="$scene" $NAV_EXTRA
                         ;;
                     g|G)
                         echo ""
-                        echo "  Available scenes:"
+                        echo "  Available scenes [$DS_LABEL]:"
                         echo "  ─────────────────────────────────────────────────"
-                        SCENES_DIR=/workspace/data/vlmaps_dataset
                         if [ -d "$SCENES_DIR" ]; then
                             i=0
                             while IFS= read -r dir; do
@@ -249,12 +309,16 @@ if torch.cuda.is_available():
                         read -r scene
                         scene=${scene:-0}
                         echo ""
-                        echo "► Generating obstacle map images for scene $scene..."
+                        echo "► Generating obstacle map images for scene $scene  [$DS_LABEL]..."
                         cd /workspace/third_party/vlmaps
                         python "$APP/generate_obstacle_map_png.py" \
-                            data_paths=docker scene_id="$scene"
+                            data_paths="$DATA_PATHS" scene_id="$scene"
                         ;;
                     n|N)
+                        if [ "$DATASET_TYPE" = "hssd" ]; then
+                            echo "  Room labeling not needed for HSSD — annotations are automatic"
+                            echo "  (read from semantics/scenes/<id>.semantic_config.json)."
+                        else
                         echo ""
                         echo "  ╔═══════════════════════════════════════════════════╗"
                         echo "  ║           Room Labeling Workflow                  ║"
@@ -274,7 +338,6 @@ if torch.cuda.is_available():
                         echo ""
                         echo "  Available scenes:"
                         echo "  ─────────────────────────────────────────────────"
-                        SCENES_DIR=/workspace/data/vlmaps_dataset
                         if [ -d "$SCENES_DIR" ]; then
                             i=0
                             while IFS= read -r dir; do
@@ -322,6 +385,7 @@ if torch.cuda.is_available():
                                     echo "  No JSON saved (LabelMe closed without saving)."
                                 fi
                             fi
+                        fi
                         fi
                         ;;
                     b|B)

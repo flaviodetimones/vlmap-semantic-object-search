@@ -29,7 +29,7 @@
 \normalsize Detección (YOLOE) + Búsqueda (VLMaps) + Navegación (Habitat-Sim)\\[0.2cm]
 \normalsize Extensión: ROS 1 Noetic + Toyota HSR}
 \author{Mario García Blasco}
-\date{26 de marzo de 2026}
+\date{31 de marzo de 2026}
 
 \begin{document}
 \maketitle
@@ -213,6 +213,7 @@ Esto permite instrucciones compuestas: primero navegar a una habitación, luego 
 \begin{itemize}[leftmargin=2cm]
     \item[\textcolor{partial}{$\sim$}] Etiquetado de habitaciones de las escenas (pipeline existe, falta etiquetar)
     \item[\textcolor{partial}{$\sim$}] Construir VLMaps para nuevas escenas (JeFG25nYj2p, Uxmj2M2itWa)
+    \item[\textcolor{partial}{$\sim$}] Integración HSSD: abstracción completada y compatibilidad verificada; VLMap HSSD en construcción
     \item[\textcolor{notdone}{$\times$}] Heatmap region analysis completo (fórmula de calidad: área, densidad, intensidad)
     \item[\textcolor{notdone}{$\times$}] Fórmula de scoring híbrida ($\alpha \cdot visual + \beta \cdot semantic - \gamma \cdot cost$)
     \item[\textcolor{notdone}{$\times$}] M1 baseline: navegación aleatoria
@@ -579,8 +580,8 @@ Para modelos realistas, descargar .glb de YCB Object Set o Google Scanned Object
 % ============================================================================
 
 \begin{itemize}
-    \item \textbf{Simulador:} Habitat-Sim 0.3.1 + Matterport3D
-    \item \textbf{Mapa semántico:} VLMaps (LSeg/CLIP, 37 categorías MP3D)
+    \item \textbf{Simulador:} Habitat-Sim 0.3.1 + Matterport3D + HSSD
+    \item \textbf{Mapa semántico:} VLMaps (LSeg/CLIP, 37 categorías MP3D / 36 categorías HSSD)
     \item \textbf{Detector:} YOLOE-11L-Seg (open-vocabulary, Ultralytics, en subproceso)
     \item \textbf{LLM:} GPT (parsing instrucciones + mapper semántico)
     \item \textbf{Path planning:} PyVisGraph + BFS sobre mapa erosionado
@@ -764,5 +765,170 @@ kept = [c for c, a in zip(contours, areas) if a >= threshold]
 \end{verbatim}
 
 Esto elimina artefactos pequeños y concentra la búsqueda en regiones significativas del mapa.
+
+% ============================================================================
+\section{Integración HSSD: estado, cambios y guía de uso}
+% ============================================================================
+
+\subsection{¿Qué es HSSD y por qué se integra?}
+
+HSSD (\textit{Habitat Static Scene Dataset}) es un conjunto de escenas de interiores sintéticas diseñadas específicamente para Habitat-Sim. A diferencia de MP3D, que usa reconstrucciones fotogramétricas reales con texturas ruidosas, HSSD ofrece:
+
+\begin{itemize}
+    \item Geometría limpia e iluminación controlada, lo que facilita la detección con YOLOE.
+    \item \textbf{Anotaciones de habitaciones incluidas de forma nativa} en ficheros \texttt{semantic\_config.json} --- sin necesidad de etiquetado manual con LabelMe.
+    \item Escenas de viviendas realistas con diversidad de habitaciones y mobiliario bien distribuido.
+\end{itemize}
+
+La integración permite evaluar el sistema M2 en entornos sintéticos de alta calidad y comparar los resultados con los obtenidos en MP3D.
+
+\textbf{Compatibilidad garantizada:} toda la funcionalidad MP3D existente se mantiene intacta. HSSD se activa exclusivamente mediante parámetros de configuración (\texttt{dataset\_type=hssd}).
+
+\subsection{Escena seleccionada}
+
+Escena \texttt{102344280} --- vivienda de una sola planta con \textbf{15 habitaciones} anotadas automáticamente:
+
+\begin{center}
+\begin{tabular}{ll}
+\toprule
+\textbf{Habitación} & \textbf{Observaciones} \\
+\midrule
+kitchen & cocina completa \\
+dining room & salón-comedor \\
+bedroom (×3) & tres dormitorios \\
+bathroom (×3) & tres baños \\
+hallway & pasillo principal \\
+entryway & entrada \\
+closet (×3) & tres armarios \\
+tv room & sala de televisión \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Área navegable: $\sim$447\,m². Navmesh se recomputa al iniciar (HSSD no lo incluye precompilado).
+
+\subsection{Cambios realizados en el sistema}
+
+Todos los cambios están en el submódulo \texttt{third\_party/vlmaps}, rama \texttt{tfg-modifications}:
+
+\begin{itemize}
+    \item \textbf{\texttt{vlmaps/robot/habitat\_lang\_robot.py}} --- \texttt{\_setup\_sim()} tiene ahora una rama \texttt{dataset\_type=hssd} que carga la escena mediante \texttt{sim\_cfg.scene\_dataset\_config\_file} en lugar del \texttt{.glb} directo de MP3D. \texttt{setup\_map()} usa \texttt{get\_categories(dataset\_type)} para inicializar las categorías correctas.
+
+    \item \textbf{\texttt{vlmaps/utils/matterport3d\_categories.py}} --- añadida la lista \texttt{hssd\_categories} (36 categorías de mobiliario) y la función \texttt{get\_categories(dataset\_type)} que devuelve la lista adecuada.
+
+    \item \textbf{\texttt{vlmaps/utils/habitat\_utils.py}} --- \texttt{make\_cfg()} acepta ahora el campo opcional \texttt{scene\_dataset\_config\_file}.
+
+    \item \textbf{\texttt{vlmaps/utils/room\_provider.py}} --- nueva clase \texttt{SemanticSceneRoomProvider} que lee los polígonos de planta del fichero \texttt{semantics/scenes/<id>.semantic\_config.json} de HSSD y los rasteriza sobre el grid del VLMap. No requiere LabelMe.
+
+    \item \textbf{\texttt{vlmaps/utils/scene\_config.py}} --- dataclass \texttt{SceneConfig} que centraliza los parámetros por escena.
+
+    \item \textbf{\texttt{config/data\_paths/hssd.yaml}} --- rutas de datos HSSD dentro del contenedor Docker.
+
+    \item \textbf{\texttt{config/object\_goal\_navigation\_cfg.yaml}} --- campos \texttt{dataset\_type} y \texttt{scene\_dataset\_config\_file} para override por línea de comandos.
+
+    \item \textbf{\texttt{application/interactive\_object\_nav.py}} --- usa \texttt{get\_categories()} en lugar de \texttt{mp3dcat} directamente.
+
+    \item \textbf{\texttt{dataset/collect\_hssd\_dataset.py}} --- script de recolección interactivo para HSSD (teclado w/a/d, guardado automático por movimiento, recomputa navmesh).
+
+    \item \textbf{\texttt{tests/test\_hssd\_loading.py}} --- test de compatibilidad: verifica que el simulador carga, RGB/depth funcionan, navmesh se recomputa y las habitaciones se leen del \texttt{semantic\_config.json}.
+
+    \item \textbf{\texttt{tests/select\_hssd\_scenes.py}} --- script de survey: itera sobre escenas HSSD disponibles, reporta número de habitaciones y área navegable.
+\end{itemize}
+
+\subsection{Flujo completo con HSSD}
+
+\subsubsection*{Paso 0 --- Descarga (una sola vez)}
+
+\begin{verbatim}
+# Dentro del contenedor Docker:
+apt-get install -y git-lfs && git lfs install
+cd /workspace/data/versioned_data/hssd-hab
+git lfs pull
+\end{verbatim}
+
+\subsubsection*{Paso 1 --- Test de compatibilidad}
+
+\begin{verbatim}
+cd /workspace/third_party/vlmaps
+python tests/test_hssd_loading.py \
+  --scene_dataset_config \
+  /workspace/data/versioned_data/hssd-hab/hssd-hab.scene_dataset_config.json \
+  --scene_id 102344280
+\end{verbatim}
+
+Si pasa, imprime las 15 habitaciones y guarda un fotograma en \texttt{tests/hssd\_test\_frame.jpg}. \textbf{Estado actual: SUPERADO.}
+
+\subsubsection*{Paso 2 --- Recolección de datos (navegación manual)}
+
+\begin{verbatim}
+python dataset/collect_hssd_dataset.py \
+  --scene_dataset_config \
+  /workspace/data/versioned_data/hssd-hab/hssd-hab.scene_dataset_config.json \
+  --scene_id 102344280
+\end{verbatim}
+
+Controles: \texttt{w} avanzar, \texttt{a} izquierda, \texttt{d} derecha, \texttt{q} salir. Cada movimiento guarda automáticamente RGB + profundidad + pose. Recomendado: cubrir todas las habitaciones, mínimo 500--600 fotogramas.
+
+Los datos se guardan en \texttt{/workspace/data/vlmaps\_dataset\_hssd/102344280\_1/}.
+
+\subsubsection*{Paso 3 --- Construir el VLMap}
+
+\begin{verbatim}
+python application/create_map.py data_paths=hssd scene_id=0
+\end{verbatim}
+
+\subsubsection*{Paso 4 --- Indexar el mapa}
+
+\begin{verbatim}
+python application/index_map.py data_paths=hssd init_categories=true scene_id=0
+\end{verbatim}
+
+\subsubsection*{Paso 5 --- Navegación interactiva}
+
+\begin{verbatim}
+python application/interactive_object_nav.py \
+  data_paths=hssd scene_id=0 dataset_type=hssd \
+  +scene_dataset_config_file=/workspace/data/versioned_data/hssd-hab/\
+hssd-hab.scene_dataset_config.json
+\end{verbatim}
+
+\subsection{Anotaciones de habitaciones en HSSD (sin LabelMe)}
+
+En MP3D, las habitaciones deben etiquetarse manualmente con LabelMe. En HSSD, las anotaciones están incluidas en el dataset:
+
+\begin{verbatim}
+/workspace/data/versioned_data/hssd-hab/
+  semantics/scenes/102344280.semantic_config.json
+\end{verbatim}
+
+Este fichero contiene, para cada habitación, un polígono de planta (\texttt{poly\_loop}) en coordenadas XZ del mundo. La clase \texttt{SemanticSceneRoomProvider} lee estos polígonos y los rasteriza sobre el grid del VLMap mediante un test punto-en-polígono, generando el mismo tipo de grid de etiquetas que LabelMe produce para MP3D.
+
+Formato de cada anotación:
+\begin{verbatim}
+{
+  "name": "kitchen",
+  "label": "kitchen",
+  "poly_loop": [[x1, 0, z1], [x2, 0, z2], ...],
+  "floor_height": 0.0,
+  "extrusion_height": 2.8
+}
+\end{verbatim}
+
+\subsection{Diferencias respecto a MP3D}
+
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+\textbf{Aspecto} & \textbf{MP3D} & \textbf{HSSD} \\
+\midrule
+Tipo de escena & Fotogramétrica real & Sintética de alta calidad \\
+Carga en Habitat & \texttt{scene\_id = /ruta.glb} & \texttt{scene\_dataset\_config\_file} \\
+Categorías VLMap & 38 cats MP3D & 36 cats HSSD \\
+Anotaciones de habitaciones & Manual (LabelMe) & Automáticas (semantic\_config.json) \\
+Navmesh & Incluido con la escena & Se recomputa al iniciar \\
+Sensor semántico & Disponible & No disponible (no necesario) \\
+\bottomrule
+\end{tabular}
+\end{center}
 
 \end{document}
