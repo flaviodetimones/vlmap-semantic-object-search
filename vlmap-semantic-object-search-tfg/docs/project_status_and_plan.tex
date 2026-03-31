@@ -931,4 +931,86 @@ Sensor semántico & Disponible & No disponible (no necesario) \\
 \end{tabular}
 \end{center}
 
+
+\section{Mejora de fluidez en navegación automática}
+
+Durante la navegación interactiva (\texttt{interactive\_object\_nav.py}), el agente sigue un camino calculado por el pathfinder de Habitat mientras se muestra una ventana OpenCV con la vista en tercera persona y el mapa semántico. El problema actual es que los pasos de movimiento son grandes, lo que produce un efecto de saltos entre fotogramas que resulta poco natural visualmente.
+
+Se han identificado dos métodos complementarios para maximizar la fluidez, ordenados de menor a mayor coste de implementación.
+
+\subsection{Método 1: reducir el tamaño de paso (step size)}
+
+\subsubsection*{Descripción}
+
+El agente de Habitat se configura con un tamaño de paso para cada acción:
+\begin{itemize}
+    \item \texttt{move\_forward}: distancia en metros por acción de avance (actualmente $\approx 0.25$\,m)
+    \item \texttt{turn\_left} / \texttt{turn\_right}: grados por acción de giro (actualmente $\approx 10°$)
+\end{itemize}
+
+Reducir estos valores a \texttt{move\_forward = 0.05\,m} y \texttt{turn = 2°} hace que cada fotograma represente un desplazamiento mucho menor, dando sensación de movimiento continuo en la ventana OpenCV.
+
+\subsubsection*{Dónde cambiar}
+
+Los parámetros de acción del agente se definen en el diccionario \texttt{sim\_setting} que se pasa a \texttt{make\_cfg()} en \texttt{vlmaps/utils/habitat\_utils.py}, y se instancian vía \texttt{AgentConfiguration} de Habitat. El valor concreto depende de cómo esté declarado el agente en el config YAML o en el código de \texttt{HabitatLangRobot}.
+
+También hay que reducir el \texttt{cv2.waitKey()} entre pasos de 200\,ms a $\sim$\,1\,ms para que la ventana refresque sin bloquear el loop de navegación.
+
+\subsubsection*{Ventajas}
+\begin{itemize}
+    \item Sin dependencias adicionales ni recompilación
+    \item Funciona dentro del contenedor Docker actual
+    \item Compatible con YOLO en el loop (más fotogramas por metro $\Rightarrow$ más detecciones)
+\end{itemize}
+
+\subsubsection*{Inconvenientes}
+\begin{itemize}
+    \item El pathfinder genera más acciones para el mismo trayecto (mayor tiempo de CPU por navegación)
+    \item El mapa semántico se actualiza más veces por trayecto (coste marginal bajo)
+\end{itemize}
+
+\subsection{Método 2: viewer nativo de Habitat-sim}
+
+\subsubsection*{Descripción}
+
+Habitat-sim incluye un visor C++ en \texttt{habitat-sim/utils/viewer} que abre una ventana OpenGL nativa y renderiza la escena en tiempo real con movimiento continuo basado en física. A diferencia de OpenCV, el renderizado no depende de la frecuencia del loop Python sino del framerate del motor gráfico, lo que produce una experiencia visualmente más próxima a un videojuego.
+
+\subsubsection*{Requisitos}
+
+\begin{itemize}
+    \item Compilar habitat-sim con soporte de display: \texttt{python setup.py install --with-bullet --headless=False}
+    \item El contenedor Docker debe tener acceso a un display (X11 forwarding o entorno con pantalla física)
+    \item Dependencias adicionales: \texttt{bullet3}, OpenGL, \texttt{libglfw3-dev}
+\end{itemize}
+
+\subsubsection*{Integración con VLMaps}
+
+El viewer nativo es una aplicación C++ independiente; no expone hooks Python directos. Para integrarlo con el pipeline de VLMaps habría que:
+\begin{enumerate}
+    \item Usar la API Python de Habitat con \texttt{habitat\_sim.Simulator} y pasar \texttt{enable\_physics=True} configurando el backend de visualización
+    \item Sincronizar el loop de VLMaps (guardar poses, actualizar mapa) con el loop de renderizado del viewer
+    \item Implementar comunicación entre el viewer C++ y el proceso Python (sockets o shared memory)
+\end{enumerate}
+
+Esto representa un esfuerzo de integración significativo fuera del alcance razonable del TFG.
+
+\subsubsection*{Ventajas}
+\begin{itemize}
+    \item Fluidez visual máxima (renderizado OpenGL a frecuencia nativa)
+    \item Físicas de colisión continuas (no discretas)
+    \item Interfaz más adecuada para demos o vídeos de presentación
+\end{itemize}
+
+\subsubsection*{Inconvenientes}
+\begin{itemize}
+    \item Requiere recompilar habitat-sim con flags específicos
+    \item Requiere display disponible en el contenedor (configuración adicional de Docker)
+    \item Integración con el pipeline Python de VLMaps es no trivial
+    \item Fuera del alcance del TFG en términos de esfuerzo/beneficio
+\end{itemize}
+
+\subsection{Recomendación}
+
+Para el TFG, implementar el \textbf{Método 1} es suficiente y tiene bajo coste. Con pasos de 0.05\,m y giros de 2°, la ventana OpenCV existente produce un movimiento visualmente fluido apto para demos y grabación de vídeo. El Método 2 queda documentado como posible mejora futura si se necesita calidad de renderizado superior.
+
 \end{document}
