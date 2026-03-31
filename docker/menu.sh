@@ -62,7 +62,7 @@ if torch.cuda.is_available():
                 DATA_PATHS="hssd"
                 SCENES_DIR=/workspace/data/vlmaps_dataset_hssd
                 HSSD_CFG=/workspace/data/versioned_data/hssd-hab/hssd-hab.scene_dataset_config.json
-                NAV_EXTRA="dataset_type=hssd +scene_dataset_config_file=$HSSD_CFG"
+                NAV_EXTRA="dataset_type=hssd scene_dataset_config_file=$HSSD_CFG"
                 DS_LABEL="HSSD"
             else
                 DATASET_TYPE="mp3d"
@@ -118,7 +118,7 @@ if torch.cuda.is_available():
                         echo ""
                         echo "    python $APP/interactive_object_nav.py data_paths=hssd scene_id=0 \\"
                         echo "        dataset_type=hssd \\"
-                        echo "        +scene_dataset_config_file=$HSSD_CFG"
+                        echo "        scene_dataset_config_file=$HSSD_CFG"
                         else
                         echo "  All scripts use Hydra. Run them from inside the container."
                         echo "  data_paths=docker uses /workspace/data paths."
