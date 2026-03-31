@@ -29,6 +29,13 @@ RUN apt-get update && apt-get install -y \
     ffmpeg \
     unzip \
     ca-certificates \
+    libxcb-icccm4 \
+    libxcb-image0 \
+    libxcb-keysyms1 \
+    libxcb-render-util0 \
+    libxcb-xinerama0 \
+    libxcb-xkb1 \
+    libxkbcommon-x11-0 \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Miniforge (conda-forge by default, no ToS issues unlike Miniconda)

@@ -1,10 +1,6 @@
 #!/bin/bash
 set -e
 
-# Set XDG_RUNTIME_DIR for Open3D / GUI applications
-export XDG_RUNTIME_DIR=/tmp/runtime-root
-mkdir -p "$XDG_RUNTIME_DIR"
-
 # Activate the tfg conda environment for interactive shells
 source /opt/conda/etc/profile.d/conda.sh
 conda activate tfg
