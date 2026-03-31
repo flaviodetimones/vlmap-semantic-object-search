@@ -1,5 +1,6 @@
 /vlmaps/
 data/
+vlmap-semantic-object-search-tfg/docs/
 datasets/
 *.tar
 *.zip
