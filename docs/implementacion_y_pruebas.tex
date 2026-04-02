@@ -1,0 +1,582 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[spanish]{babel}
+\usepackage{geometry}
+\geometry{margin=2.5cm}
+\usepackage{amsmath,amssymb}
+\usepackage{enumitem}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{longtable}
+\usepackage{hyperref}
+\usepackage{xcolor}
+\usepackage{titlesec}
+\usepackage{fancyhdr}
+\usepackage{listings}
+\usepackage{mdframed}
+\usepackage{tcolorbox}
+
+\definecolor{done}{RGB}{34,139,34}
+\definecolor{codeblue}{RGB}{0,80,160}
+\definecolor{codegray}{RGB}{240,240,240}
+\definecolor{highlight}{RGB}{255,250,205}
+
+\lstset{
+  basicstyle=\ttfamily\small,
+  backgroundcolor=\color{codegray},
+  breaklines=true,
+  frame=single,
+  framesep=4pt,
+  xleftmargin=6pt,
+  xrightmargin=6pt,
+  aboveskip=6pt,
+  belowskip=6pt,
+}
+
+\pagestyle{fancy}
+\fancyhf{}
+\rhead{TFG --- Implementación y Pruebas}
+\lhead{Mario García Blasco}
+\rfoot{\thepage}
+
+\title{\textbf{Búsqueda Semántica de Objetos en Simulación}\\[0.3cm]
+\large Documento de implementación y guía de pruebas\\[0.2cm]
+\normalsize Heatmaps precisos · Filtro de coherencia · Mapper LLM · YOLOE · Métodos M1--M3}
+\author{Mario García Blasco}
+\date{26 de marzo de 2026}
+
+\begin{document}
+\maketitle
+\tableofcontents
+\newpage
+
+% ============================================================================
+\section{Resumen del sistema}
+% ============================================================================
+
+El sistema implementa un pipeline de tres niveles para la búsqueda de objetos en
+entornos simulados Matterport3D con Habitat-Sim:
+
+\begin{enumerate}
+  \item \textbf{Nivel 1 -- Habitaciones (LabelMe):} polígonos de habitaciones etiquetados
+        manualmente que permiten al robot navegar hacia una habitación concreta.
+  \item \textbf{Nivel 2 -- Mobiliario (VLMaps):} mapa semántico con 37 categorías MP3D
+        que produce heatmaps de dónde es probable encontrar un mueble.
+  \item \textbf{Nivel 3 -- Verificación visual (YOLOE):} detector open-vocabulary que
+        confirma si el objeto específico está presente al llegar al destino.
+\end{enumerate}
+
+El fichero principal es:
+\begin{lstlisting}
+third_party/vlmaps/application/interactive_object_nav.py
+\end{lstlisting}
+
+% ============================================================================
+\section{Características implementadas}
+% ============================================================================
+
+\subsection{Heatmaps precisos (pipeline de index\_map)}
+
+\textbf{Problema original:} La versión de heatmap usada en navegación interactiva
+re-normalizaba el mapa CLIP, produciendo regiones muy ruidosas y difusas con
+falsos positivos.
+
+\textbf{Solución:} Se reemplazó el cálculo por el mismo pipeline que usa
+\texttt{index\_map.py} del repositorio original:
+\begin{enumerate}
+  \item \texttt{vlmap.init\_categories(mp3dcat[1:-1])} --- inicializa scores CLIP para las 37 categorías.
+  \item \texttt{vlmap.index\_map(category, with\_init\_cat=True)} --- genera máscara booleana 3D.
+  \item \texttt{pool\_3d\_label\_to\_2d(mask, grid\_pos, gs)} --- proyecta a vista cenital 2D.
+  \item \texttt{get\_heatmap\_from\_mask\_2d(mask\_2d, cell\_size=0.05, decay\_rate=0.01)} --- genera heatmap suavizado.
+\end{enumerate}
+
+\textbf{Función clave:} \texttt{compute\_heatmap(robot, category)} en
+\texttt{interactive\_object\_nav.py}.
+
+\textbf{Efecto medido:}
+\begin{center}
+\begin{tabular}{lcc}
+\toprule
+Categoría & Celdas $>0.5$ (antiguo) & Celdas $>0.5$ (nuevo) \\
+\midrule
+sofa       & 22\,000 & 8\,000  \\
+table      & 36\,000 & 11\,000 \\
+toilet     & 18\,000 & 5\,000  \\
+\bottomrule
+\end{tabular}
+\end{center}
+El nuevo heatmap es 2--3$\times$ más concentrado en las zonas reales.
+
+% -----------------------------------------------------------------------
+\subsection{Filtro de coherencia del heatmap}
+
+Si el heatmap está muy fragmentado (el objeto apareció en muchas celdas
+dispersas), no es fiable. Se descarta y se usa fallback a BFS.
+
+\textbf{Función:} \texttt{\_heatmap\_is\_coherent(mask\_2d, min\_total\_cells=30,
+min\_dominance=0.30)}
+
+\textbf{Criterios:}
+\begin{itemize}
+  \item Al menos 30 celdas activas en total.
+  \item La componente conexa más grande ocupa $\geq 30\%$ del total de celdas
+        activas (dominio de la componente principal).
+\end{itemize}
+
+\textbf{Resultados medidos:}
+\begin{center}
+\begin{tabular}{lcc}
+\toprule
+Categoría & Dominancia & ¿Aceptado? \\
+\midrule
+sofa         & 44\% & \textcolor{done}{\checkmark} \\
+bed          & 41\% & \textcolor{done}{\checkmark} \\
+toilet       & 45\% & \textcolor{done}{\checkmark} \\
+wall         & 13\% & \textcolor{red}{$\times$} \\
+chair        & 12\% & \textcolor{red}{$\times$} \\
+table        & 16\% & \textcolor{red}{$\times$} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+% -----------------------------------------------------------------------
+\subsection{Mapper LLM: traducción de objetos a categorías VLMap}
+
+\textbf{Problema:} VLMaps solo conoce 37 categorías MP3D (muebles genéricos).
+Si el usuario pide ``laptop'', VLMaps no tiene esa categoría.
+
+\textbf{Solución:} Un LLM (GPT con few-shot) traduce el objeto a una lista de
+categorías VLMap donde probablemente se encuentre.
+
+\textbf{Función:} \texttt{map\_object\_to\_vlmap\_categories(object\_name)} en
+\texttt{vlmaps/utils/llm\_utils.py}
+
+\textbf{Ejemplos de mapeo:}
+\begin{center}
+\begin{tabular}{ll}
+\toprule
+Objeto pedido & Categorías VLMap devueltas \\
+\midrule
+laptop        & table, counter, shelving \\
+book          & shelving, table, bed \\
+mug           & counter, table \\
+toilet paper  & toilet, shelving \\
+tv            & tv\_monitor, furniture \\
+sofa          & sofa (directo, ya está en MP3D) \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\textbf{Lógica:}
+\begin{enumerate}
+  \item Si el objeto ya es una categoría MP3D $\to$ devuelve directamente esa categoría.
+  \item Si no $\to$ llama al LLM con few-shot prompting y parsea JSON
+        \texttt{\{categories: [...], reason: "..."\}}.
+  \item Fallback: si el parsing falla $\to$ devuelve \texttt{["furniture", "objects"]}.
+\end{enumerate}
+
+% -----------------------------------------------------------------------
+\subsection{YOLOE: verificador visual en llegada}
+
+Al llegar a un candidato, el robot gira 360° y toma fotos con la cámara
+frontal. YOLOE verifica si el objeto original está visible.
+
+\textbf{Modelo:} YOLOE-11L-Seg cargado desde \texttt{/workspace/yoloe-11l-seg.pt}
+
+\textbf{Funciones:}
+\begin{itemize}
+  \item \texttt{\_load\_yoloe()} --- carga el modelo una sola vez (singleton).
+  \item \texttt{yoloe\_verify(robot, object\_name, conf\_thresh=0.25)} --- captura
+        frames frontales, ejecuta YOLOE con \texttt{set\_classes([object\_name])},
+        devuelve \texttt{\{found, detections, frame\_bgr\}}.
+\end{itemize}
+
+\textbf{API de YOLOE (importante):}
+\begin{lstlisting}[language=Python]
+model.set_classes(["laptop"])   # fijar clase ANTES de predict
+results = model.predict(frame, conf=0.25)
+\end{lstlisting}
+\textit{Nota:} la primera llamada a \texttt{set\_classes} descarga el backbone
+MobileCLIP (\textasciitilde572\,MB) -- solo ocurre una vez.
+
+\textbf{Resultados en escena real (6200 frames):}
+\begin{center}
+\begin{tabular}{lcc}
+\toprule
+Objeto & Conf. media & ¿Detectado correctamente? \\
+\midrule
+sofa & 0.258 & \textcolor{done}{\checkmark} \\
+bed  & 0.283 & \textcolor{done}{\checkmark} \\
+chair & 0.31 & \textcolor{done}{\checkmark} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+% -----------------------------------------------------------------------
+\subsection{Análisis de regiones del heatmap (extract\_heatmap\_regions)}
+
+Segmenta el heatmap en regiones candidatas y las ordena por calidad.
+
+\textbf{Función:} \texttt{extract\_heatmap\_regions(heatmap, score\_thresh=0.3,
+min\_area=20, min\_mean\_score=0.3, min\_density=0.4)}
+
+\textbf{Para cada región calcula:}
+\begin{itemize}
+  \item \textbf{área}: número de celdas activas.
+  \item \textbf{mean\_score}: media del heatmap en esas celdas.
+  \item \textbf{density}: fracción de celdas activas vs.\ bounding box.
+  \item \textbf{quality}: $0.3 \cdot \hat{a} + 0.4 \cdot \bar{s} + 0.3 \cdot d$
+        donde $\hat{a}$ es área normalizada.
+\end{itemize}
+
+\textbf{Devuelve:} lista de dicts ordenada por \texttt{quality} descendente:
+\begin{lstlisting}[language=Python]
+[{"centroid": (r, c), "area": 120, "mean_score": 0.62,
+  "density": 0.78, "quality": 0.71}, ...]
+\end{lstlisting}
+
+\textbf{Resultados medidos:}
+\begin{center}
+\begin{tabular}{lcc}
+\toprule
+Categoría & Nº regiones & Mejor quality \\
+\midrule
+sofa       & 27 & 0.809 \\
+toilet     &  6 & 0.824 \\
+tv\_monitor & 16 & 0.861 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+% -----------------------------------------------------------------------
+\subsection{Métodos de búsqueda M1, M2, M3}
+
+Al iniciar la navegación interactiva, el sistema pregunta qué método usar.
+
+\begin{center}
+\begin{tabular}{clp{7cm}}
+\toprule
+Método & Nombre & Descripción \\
+\midrule
+M1 & Random      & Selecciona un punto navegable aleatorio. Baseline ingenuo. \\
+M2 & Nearest     & BFS: candidato más cercano al robot según el heatmap. Si el heatmap no es coherente, usa fallback aleatorio. \\
+M3 & Semantic    & Usa \texttt{extract\_heatmap\_regions} y va directamente a la región de mayor calidad. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\textbf{Funciones:}
+\begin{itemize}
+  \item \texttt{select\_goal\_random(robot)} --- M1.
+  \item \texttt{select\_goal\_nearest(robot, furniture\_cat, heatmap)} --- M2.
+  \item \texttt{select\_goal\_semantic(robot, furniture\_cat, heatmap)} --- M3.
+  \item \texttt{\_METHOD\_SELECTORS = \{"M1": ..., "M2": ..., "M3": ...\}} --- dispatch.
+  \item \texttt{\_active\_method = "M2"} --- valor por defecto.
+\end{itemize}
+
+% ============================================================================
+\section{Cómo probar cada característica}
+% ============================================================================
+
+\subsection{Requisitos previos}
+
+\begin{enumerate}
+  \item Iniciar el contenedor Docker con GPU:
+\begin{lstlisting}
+./docker/run_docker.sh
+\end{lstlisting}
+  \item Desde el menú principal (\texttt{./docker/menu.sh}):
+        \begin{itemize}
+          \item Opción \textbf{b)} para construir el mapa VLMap (si no existe).
+          \item Opción \textbf{n)} para iniciar navegación interactiva.
+        \end{itemize}
+\end{enumerate}
+
+% -----------------------------------------------------------------------
+\subsection{Probar los heatmaps precisos}
+
+Al pedir un objeto en navegación interactiva, se imprime en consola:
+
+\begin{lstlisting}
+[Heatmap] sofa: 8234 cells > 0
+[Heatmap] coherence: dominant_ratio=0.44 -> ACCEPTED
+\end{lstlisting}
+
+Para comparar con el método antiguo, comentar temporalmente el bloque de
+\texttt{vlmap.init\_categories} en \texttt{compute\_heatmap()} y ver que el
+número de celdas activas se multiplica por 2-3.
+
+% -----------------------------------------------------------------------
+\subsection{Probar el filtro de coherencia}
+
+Pedir al robot que busque ``wall'' o ``floor'':
+
+\begin{lstlisting}
+You: find the wall
+[Heatmap] wall: 45123 cells > 0
+[Heatmap] coherence: dominant_ratio=0.13 -> REJECTED (fallback)
+[Nav] Using random fallback goal
+\end{lstlisting}
+
+Contraste: pedir ``sofa'' o ``toilet'' -- el heatmap es aceptado y el robot va directamente.
+
+% -----------------------------------------------------------------------
+\subsection{Probar el Mapper LLM}
+
+En la sesión interactiva, pedir un objeto no-MP3D:
+
+\begin{lstlisting}
+You: find the laptop
+[Mapper LLM] laptop -> ['table', 'counter', 'shelving'] (reason: laptops are typically on tables or counters)
+[Nav] Searching for furniture categories: table, counter, shelving
+\end{lstlisting}
+
+Pedir un objeto MP3D directo para ver el path rápido:
+
+\begin{lstlisting}
+You: find the sofa
+[Mapper LLM] sofa is already an MP3D category -> ['sofa']
+\end{lstlisting}
+
+% -----------------------------------------------------------------------
+\subsection{Probar YOLOE}
+
+Al llegar al primer candidato, YOLOE ejecuta la verificación:
+
+\begin{lstlisting}
+[YOLOE] Verifying 'laptop' at arrival...
+[YOLOE] FOUND: laptop (conf=0.41) -> SUCCESS
+\end{lstlisting}
+
+O si no lo encuentra:
+
+\begin{lstlisting}
+[YOLOE] laptop NOT found at this location, continuing search...
+\end{lstlisting}
+
+La ventana de OpenCV muestra el frame con bounding boxes cuando hay detecciones.
+
+\textbf{Test unitario rápido} (sin Habitat, solo verificar que YOLOE carga):
+
+\begin{lstlisting}[language=Python]
+from ultralytics import YOLOE
+model = YOLOE("/workspace/yoloe-11l-seg.pt")
+model.set_classes(["sofa"])
+import numpy as np
+img = np.zeros((480, 640, 3), dtype=np.uint8)
+results = model.predict(img, conf=0.25, verbose=False)
+print("YOLOE OK, detections:", len(results[0].boxes))
+\end{lstlisting}
+
+% -----------------------------------------------------------------------
+\subsection{Probar el análisis de regiones}
+
+En el REPL de Python dentro del contenedor:
+
+\begin{lstlisting}[language=Python]
+import sys
+sys.path.insert(0, "/workspace/vlmaps")
+from application.interactive_object_nav import (
+    compute_heatmap, extract_heatmap_regions
+)
+# Asumiendo que robot ya está inicializado en una sesión de navegación,
+# o cargando un heatmap guardado:
+regions = extract_heatmap_regions(heatmap, score_thresh=0.3, min_area=20)
+for r in regions[:3]:
+    print(f"  centroid={r['centroid']}  quality={r['quality']:.3f}")
+\end{lstlisting}
+
+% -----------------------------------------------------------------------
+\subsection{Probar los métodos M1, M2, M3}
+
+Al iniciar la sesión interactiva (\texttt{menu.sh} opción n):
+
+\begin{lstlisting}
+Search methods: M1 (random), M2 (nearest), M3 (semantic quality)
+Select method [M1/M2/M3, default M2]: M3
+\end{lstlisting}
+
+\textbf{Prueba comparativa sugerida:}
+\begin{enumerate}
+  \item Escena 2, objeto: ``sofa''.
+  \item Ejecutar 3 veces con M1, anotar pasos hasta encontrarlo.
+  \item Ejecutar 3 veces con M2, comparar.
+  \item Ejecutar 3 veces con M3, comparar.
+  \item M3 debería requerir menos pasos que M1, con M2 como intermedio.
+\end{enumerate}
+
+% ============================================================================
+\section{Pipeline completo: ejemplo de sesión}
+% ============================================================================
+
+\begin{lstlisting}
+$ ./docker/menu.sh
+> n) Interactive navigation
+
+Search methods: M1 (random), M2 (nearest), M3 (semantic quality)
+Select method [M1/M2/M3, default M2]: M3
+
+Scene 2 loaded. Robot at (362, 480).
+
+[M3] You: find the laptop
+
+[Mapper LLM] laptop -> ['table', 'counter', 'shelving']
+
+[Heatmap] table: 11230 cells > 0
+[Heatmap] coherence: dominant_ratio=0.38 -> ACCEPTED
+[Regions] table: 12 regions found, best quality=0.71
+
+[Nav] Going to table region at (401, 512) [quality=0.71]
+... (robot navega) ...
+
+[YOLOE] Verifying 'laptop' at arrival...
+[YOLOE] laptop NOT found, trying next region...
+
+[Nav] Going to table region at (388, 495) [quality=0.68]
+... (robot navega) ...
+
+[YOLOE] FOUND: laptop (conf=0.37) -> SUCCESS
+Goal reached in 2 attempts, 184 steps.
+\end{lstlisting}
+
+% ============================================================================
+\section{Estructura de ficheros relevantes}
+% ============================================================================
+
+\begin{center}
+\begin{longtable}{p{7.5cm}p{7cm}}
+\toprule
+\textbf{Fichero} & \textbf{Cambios} \\
+\midrule
+\texttt{third\_party/vlmaps/application/} \texttt{interactive\_object\_nav.py}
+& Todas las funciones nuevas: \texttt{compute\_heatmap}, \texttt{\_heatmap\_is\_coherent}, \texttt{find\_heatmap\_goal}, \texttt{extract\_heatmap\_regions}, \texttt{\_load\_yoloe}, \texttt{yoloe\_verify}, \texttt{select\_goal\_random/nearest/semantic}, \texttt{\_METHOD\_SELECTORS} \\
+\midrule
+\texttt{third\_party/vlmaps/vlmaps/utils/} \texttt{llm\_utils.py}
+& \texttt{map\_object\_to\_vlmap\_categories()} con few-shot LLM \\
+\midrule
+\texttt{third\_party/vlmaps/vlmaps/robot/} \texttt{habitat\_lang\_robot.py}
+& \texttt{\_NAV\_MARGIN\_PX = 2} (margen de 2px en mapa erosionado $\approx$10\,cm) \\
+\bottomrule
+\end{longtable}
+\end{center}
+
+% ============================================================================
+\section{Próximos pasos}
+% ============================================================================
+
+\begin{enumerate}
+  \item \textbf{M4}: scoring híbrido (VLMap $\times$ YOLOE confidence) con
+        re-routing si YOLOE no detecta tras $k$ visitas.
+  \item \textbf{M5}: planificación de 4 viewpoints por región + exploración de
+        fronteras para regiones no alcanzadas.
+  \item \textbf{Benchmark}: \texttt{run\_evaluation.py} con 10 objetos $\times$
+        3 escenas $\times$ 5 métodos (M1--M5), métricas: success rate,
+        avg steps, avg path length.
+  \item \textbf{ROS 1 Noetic}: wrapper para Toyota HSR (última prioridad).
+\end{enumerate}
+
+% ============================================================================
+\section{Actualización — 2 de abril de 2026}
+% ============================================================================
+
+\subsection{Postproceso de heatmaps: \texttt{postprocess\_heatmap}}
+
+\subsubsection*{Motivación}
+Al generar mapas de similitud semántica para queries como \textit{bed},
+\textit{window} o \textit{bathroom}, aparece una región principal coherente
+junto con múltiples activaciones pequeñas dispersas (ruido). El postproceso
+las elimina de forma genérica, sin reglas por clase.
+
+\subsubsection*{Pipeline implementado}
+
+\begin{enumerate}
+  \item \textbf{Suavizado Gaussiano} (\texttt{blur\_ksize=5},
+        \texttt{blur\_sigma=1.0}): reduce ruido de alta frecuencia.
+  \item \textbf{Umbral relativo}: \texttt{thr = rel\_thresh * max(smoothed)},
+        con \texttt{rel\_thresh=0.5}. Adaptativo a cada query y escena.
+  \item \textbf{Componentes conectadas} (8-conectividad, OpenCV
+        \texttt{connectedComponentsWithStats}).
+  \item \textbf{Puntuación por componente}:
+        $\text{score} = \bar{v} \cdot \ln(1+A)$
+        (\texttt{mean\_log\_area}), donde $\bar{v}$ es el valor medio y $A$
+        el área. Alternativa: \texttt{max\_sqrt\_area}.
+  \item \textbf{Filtro relativo}: se retienen componentes con
+        $\text{score} \geq \texttt{keep\_ratio} \cdot \text{best\_score}$,
+        con \texttt{keep\_ratio=0.2}. Preserva objetos pequeños reales con
+        alta similitud.
+\end{enumerate}
+
+\textbf{API}:
+\begin{verbatim}
+cleaned_heatmap, final_mask, kept_components = postprocess_heatmap(
+    heatmap, blur_ksize=5, blur_sigma=1.0, rel_thresh=0.5,
+    min_area=3, score_mode="mean_log_area", keep_ratio=0.2)
+\end{verbatim}
+
+\texttt{compute\_heatmap} ahora devuelve
+\texttt{(heatmap, kept\_components)}.
+
+\subsubsection*{Coste computacional}
+Gaussian blur + connected components sobre un mapa $1000\times1000$ en
+NumPy/OpenCV: $\approx$5--15~ms en CPU. Apto para uso interactivo.
+
+% -----------------------------------------------------------------------
+\subsection{Exploración 360° tras fallo de detección}
+% -----------------------------------------------------------------------
+
+\subsubsection*{Flujo}
+Después de Stage~1 (0{,}5~m) y Stage~2 (1~m) sin confirmación YOLOE, se
+ejecuta \texttt{scan\_360\_and\_verify}:
+
+\begin{enumerate}
+  \item El robot rota $360°$ en 18 pasos de 20° cada uno.
+  \item Cada paso usa \texttt{robot.turn(20)}, que internamente ejecuta
+        cuatro acciones discretas \texttt{turn\_right} de 5°.
+        \textbf{No hay teletransporte ni saltos bruscos.}
+  \item Tras cada giro se captura el frame de cámara y se ejecuta YOLOE.
+  \item Si YOLOE confirma el objeto, la exploración termina.
+\end{enumerate}
+
+% -----------------------------------------------------------------------
+\subsection{Ruta alternativa (\texttt{navigate\_to\_alternative})}
+% -----------------------------------------------------------------------
+
+Si la exploración 360° también falla, el sistema selecciona la componente
+del heatmap postprocesado con mayor score cuyo centroide esté a
+$\geq20$ celdas (${\approx}1$~m) de la posición actual, planifica un standoff de
+1~m sobre la región del VLMap más cercana y navega hasta allí mediante
+\texttt{robot.move\_to()} (acciones discretas). Tras llegar, se ejecuta
+una última verificación YOLOE.
+
+\subsubsection*{Resumen del flujo completo (Stage 1--4)}
+
+\begin{center}
+\begin{tabular}{clll}
+\toprule
+Stage & Posición & YOLOE & Si falla $\to$ \\
+\midrule
+1 & 0{,}5~m standoff & Sí & Stage 2 \\
+2 & 1~m standoff     & Sí & Stage 3 \\
+3 & 360° scan (misma pos.) & Sí ($\times$18) & Stage 4 \\
+4 & Alt.\ componente heatmap & Sí & Desistir \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{Archivos modificados}
+
+\begin{center}
+\begin{tabular}{ll}
+\toprule
+\textbf{Archivo} & \textbf{Cambio} \\
+\midrule
+\texttt{application/interactive\_object\_nav.py}
+  & \texttt{postprocess\_heatmap}, \texttt{scan\_360\_and\_verify},
+    \texttt{navigate\_to\_alternative}; loop principal extendido con
+    Stage~3 y Stage~4 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\end{document}
