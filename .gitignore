@@ -24,3 +24,5 @@ logs/
 *.log
 habitat-sim/
 docs/
+mobileclip_blt.ts
+yoloe-11l-seg.pt
