@@ -1118,7 +1118,82 @@ La cámara \texttt{color\_sensor} se configuró con inclinación de $-\pi/8$ rad
 \end{center}
 
 % ============================================================================
-\section*{Actualización — 2 de abril de 2026}
+\section*{Actualización — 2 de abril de 2026 (segunda iteración)}
+% ============================================================================
+
+\subsection*{YOLOE persistente, scan 360° en tiempo real, cámara -30°, acercamiento}
+
+\begin{enumerate}
+
+  \item \textbf{Worker YOLOE persistente (\texttt{\_yoloe\_persistent\_worker.py})}.
+  Se creó un nuevo script de subproceso que carga el modelo \emph{una sola vez}
+  al arrancar y queda en escucha de peticiones vía \texttt{stdin}/\texttt{stdout}
+  (protocolo de línea: \texttt{input|output} → \texttt{1} o \texttt{0}).
+  Las inferencias posteriores tardan \textasciitilde100--500~ms en lugar de
+  \textasciitilde30~s (coste de recarga de modelo por llamada).
+
+  \item \textbf{Clase \texttt{YoloeSession} en \texttt{yoloe\_utils.py}}.
+  Gestiona el worker persistente con dos modos:
+  \begin{itemize}
+    \item \textbf{Síncrono} (\texttt{.check(frame)}): para verificaciones únicas
+          en la posición de llegada.
+    \item \textbf{Asíncrono} (\texttt{start\_bg\_thread / push\_frame /
+          poll\_result}): hilo de fondo que alimenta el worker; el bucle
+          principal no bloquea.
+  \end{itemize}
+  Función de caché global \texttt{get\_session(target)} para reutilizar la
+  sesión entre instrucciones del mismo objeto.
+
+  \item \textbf{Scan 360° fluido en tiempo real}. El scan ya no usa
+  \texttt{robot.turn(20°)} sino pasos nativos de 5° directos al simulador,
+  mostrando \textbf{cada frame} inmediatamente. YOLOE corre en hilo de fondo;
+  el resultado se superpone en cuanto está disponible sin bloquear el display.
+  Velocidad visual \textasciitilde30--60~fps, anotación YOLOE \textasciitilde2--5~fps.
+
+  \item \textbf{Cámara inclinada $-30°$} (\texttt{habitat\_utils.py}).
+  Orientación cambiada de $-\pi/8$ (22{,}5°) a $-\pi/6$ (30°) en
+  \texttt{color\_sensor} y \texttt{back\_color\_sensor}.
+
+  \item \textbf{Acercamiento máximo al objeto}. Standoff reducido de 0{,}5~m
+  a \textbf{0{,}25~m}. El navmesh ya gestiona colisiones: si el punto de destino
+  cae dentro de un obstáculo, lo snappa al punto navegable más cercano.
+  Se eliminó el stage de retroceso a 1~m (carece de sentido alejarse si el
+  objeto no se detecta).
+
+\end{enumerate}
+
+\subsection*{Flujo de verificación actualizado}
+
+\begin{center}
+\begin{tabular}{clll}
+\toprule
+Stage & Posición & YOLOE & Si falla $\to$ \\
+\midrule
+1 & 0{,}25~m standoff & Síncrono & Stage 2 \\
+2 & 360° scan in situ & Asíncrono (hilo bg) & Stage 3 \\
+3 & Alt.\ componente heatmap & Síncrono & Desistir \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection*{Archivos modificados / creados}
+
+\begin{center}
+\begin{tabular}{ll}
+\toprule
+\textbf{Archivo} & \textbf{Cambio} \\
+\midrule
+\texttt{vlmaps/utils/\_yoloe\_persistent\_worker.py} & Nuevo — worker persistente \\
+\texttt{vlmaps/utils/yoloe\_utils.py} & \texttt{YoloeSession} + \texttt{get\_session} + \texttt{shutdown\_session} \\
+\texttt{vlmaps/utils/habitat\_utils.py} & Tilt cámara $-\pi/6$ (30°) \\
+\texttt{application/interactive\_object\_nav.py}
+  & Standoff 0{,}25~m; scan 360° async; sesión YOLOE global \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+% ============================================================================
+\section*{Actualización — 2 de abril de 2026 (primera iteración)}
 % ============================================================================
 
 \subsection*{Cambios implementados}

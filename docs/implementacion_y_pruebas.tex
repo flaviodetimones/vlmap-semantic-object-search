@@ -477,7 +477,93 @@ Goal reached in 2 attempts, 184 steps.
 \end{enumerate}
 
 % ============================================================================
-\section{Actualización — 2 de abril de 2026}
+\section{Actualización — 2 de abril de 2026 (segunda iteración)}
+% ============================================================================
+
+\subsection{YOLOE persistente: \texttt{YoloeSession}}
+
+\subsubsection*{Problema}
+Cada llamada a \texttt{yoloe\_verify()} lanzaba un subproceso nuevo que cargaba
+el modelo YOLOE desde cero (\textasciitilde30~s). Durante el scan 360° se
+producía un \texttt{TimeoutExpired} a los 30~s por llamada.
+
+\subsubsection*{Solución: worker persistente + hilo de fondo}
+
+\textbf{Nuevo fichero} \texttt{\_yoloe\_persistent\_worker.py}:
+\begin{verbatim}
+# Protocolo stdin/stdout (line-buffered):
+# arranque  -> imprime "READY"
+# petición  <- lee "input_path|output_path"
+# respuesta -> imprime "1" (found) o "0"
+model = YOLO(weights); model.set_classes([target])
+print("READY", flush=True)
+for line in sys.stdin:
+    input_path, output_path = line.strip().split("|")
+    results = model.predict(cv2.imread(input_path), ...)
+    cv2.imwrite(output_path, results[0].plot())
+    print("1" if found else "0", flush=True)
+\end{verbatim}
+
+\textbf{Clase \texttt{YoloeSession}} en \texttt{yoloe\_utils.py}:
+\begin{itemize}
+  \item \texttt{start()}: lanza el subproceso persistente, espera \texttt{READY}.
+  \item \texttt{check(frame)}: envía frame vía \texttt{stdin}, espera resultado.
+        Tras la carga inicial ($\sim$10~s), cada inferencia cuesta
+        \textasciitilde100--500~ms.
+  \item \texttt{start\_bg\_thread()} / \texttt{push\_frame()} /
+        \texttt{poll\_result()}: API asíncrona para el scan en tiempo real.
+        El hilo de fondo consume frames de una \texttt{Queue} y publica
+        resultados sin bloquear el bucle principal.
+  \item \texttt{get\_session(target)}: caché global, reutiliza la sesión si
+        el target no cambia.
+\end{itemize}
+
+\subsection{Scan 360° en tiempo real}
+
+\subsubsection*{Antes}
+\texttt{robot.turn(20)} + \texttt{yoloe\_verify(frame)} bloqueante $\Rightarrow$
+18 llamadas $\times$ 30~s $=$ timeout.
+
+\subsubsection*{Ahora}
+\begin{enumerate}
+  \item Pasos nativos de 5° (\texttt{robot.sim.step("turn\_right")}): la
+        imagen se actualiza en cada paso (72 frames por rotación completa).
+  \item Cada frame se envía a \texttt{YoloeSession.push\_frame()} (no bloqueante).
+  \item \texttt{poll\_result()} lee el último resultado disponible sin esperar.
+  \item El display corre a la velocidad del simulador (\textasciitilde30--60~fps);
+        las anotaciones YOLOE aparecen en cuanto el hilo de fondo las produce
+        (\textasciitilde2--5~fps efectivos).
+  \item Al detectar el objeto, la rotación se detiene inmediatamente.
+\end{enumerate}
+
+\subsection{Cámara a $-30°$ e inicio más cercano al objeto}
+
+\begin{itemize}
+  \item \textbf{Tilt cámara}: \texttt{habitat\_utils.py} actualizado de
+        $-\pi/8$ (22{,}5°) a $-\pi/6$ (30°) en ambos sensores de color.
+  \item \textbf{Standoff reducido}: de 0{,}5~m a 0{,}25~m como distancia
+        objetivo. El navmesh snappa el destino al punto navegable más cercano
+        si cae dentro de un obstáculo.
+  \item \textbf{Stage de retroceso a 1~m eliminado}: no tiene sentido alejarse
+        si el objeto no se detecta; el scan 360° es más efectivo.
+\end{itemize}
+
+\subsection{Flujo de verificación actualizado}
+
+\begin{center}
+\begin{tabular}{clll}
+\toprule
+Stage & Posición & YOLOE & Si falla $\to$ \\
+\midrule
+1 & 0{,}25~m standoff & Síncrono & Stage 2 \\
+2 & 360° scan in situ & Asíncrono (hilo bg) & Stage 3 \\
+3 & Alt.\ componente heatmap & Síncrono & Desistir \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+% ============================================================================
+\section{Actualización — 2 de abril de 2026 (primera iteración)}
 % ============================================================================
 
 \subsection{Postproceso de heatmaps: \texttt{postprocess\_heatmap}}
