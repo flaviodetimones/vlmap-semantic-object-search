@@ -62,7 +62,7 @@ if torch.cuda.is_available():
                 DATA_PATHS="hssd"
                 SCENES_DIR=/workspace/data/vlmaps_dataset_hssd
                 HSSD_CFG=/workspace/data/versioned_data/hssd-hab/hssd-hab.scene_dataset_config.json
-                NAV_EXTRA="dataset_type=hssd +scene_dataset_config_file=$HSSD_CFG"
+                NAV_EXTRA="dataset_type=hssd scene_dataset_config_file=$HSSD_CFG"
                 DS_LABEL="HSSD"
             else
                 DATASET_TYPE="mp3d"
