@@ -9,3 +9,10 @@ datasets/
 __pycache__/
 *.pyc
 .env
+*.pdf
+*.tex
+*.aux
+*.log
+*.toc
+*.out
+claude/
