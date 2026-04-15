@@ -1061,6 +1061,56 @@ disponibilidad del robot HSR en el laboratorio V4R del TU Wien.
         y se prueban hasta tres candidatos alternativos. Si ningún candidato
         supera los umbrales, la consulta se omite con mensaje explícito. La
         seguridad ya no es anotación, sino control de flujo.
+
+  \item \textbf{Corrección Problema 1 — metas de aproximación seguras alrededor del
+        centroide de componente}: el pipeline anterior planificaba hasta el centroide
+        del heatmap (a menudo situado sobre un obstáculo), ejecutaba el camino completo
+        y luego recorría el camino hacia atrás buscando un buen punto de observación. Si
+        el centroide caía dentro de un obstáculo, el planificador visgraph producía rutas
+        erróneas. Se añade \texttt{find\_safe\_candidate\_approach\_goals(centroid,
+        safe\_obs\_map, robot\_pos)} que muestrea posiciones de aproximación en un anillo
+        de $8$--$25$ celdas alrededor del centroide, filtra por navegabilidad en
+        \texttt{\_safe\_obs\_map} y holgura mínima $\ge 3$ celdas, y ordena por holgura
+        descendente y proximidad al robot. La meta de navegación se elige directamente
+        del mejor candidato del anillo; el camino hacia atrás solo se activa como
+        respaldo si el anillo queda vacío.
+
+  \item \textbf{Corrección Problema 2 — planificador global atravesaba paredes}:
+        causa raíz doble. (a) La dilatación de obstáculos con 5 iteraciones (bilateral
+        $\approx10$ celdas) cerraba los pasillos estrechos de HSSD ($\sim$10 celdas de
+        ancho) desconectando habitaciones en el visgraph. Corregido volviendo a
+        3~iteraciones ($\approx6$ celdas). (b) El método de recuperación de goal en
+        espacio de obstáculo usaba \texttt{G.closest\_point()} (holgura\,=\,0) con
+        \texttt{get\_nearby\_position()} como fallback, que devuelve \texttt{None} si
+        las cuatro diagonales están bloqueadas; \texttt{vg.Point(None[0])} genera
+        coordenadas inválidas $(-1,\,96)$ y \texttt{G.shortest\_path} produce una línea
+        recta a través de paredes. Ambas funciones se reemplazan por
+        \texttt{\_snap\_to\_nearest\_free(point, obstacles, min\_clearance)} en
+        \texttt{navigation\_utils.py}, que usa \texttt{distance\_transform\_edt} para
+        encontrar la celda libre más cercana con holgura suficiente: el resultado está
+        siempre garantizado dentro del espacio navegable del mapa del visgraph.
+        Se añaden también registros de diagnóstico \texttt{[planner] Start navigable:
+        \ldots{} Goal navigable: \ldots{}} y almacenamiento del mapa dilatado completo
+        como \texttt{robot.\_safe\_obs\_map} para que el resto del sistema use la misma
+        referencia que el visgraph. Las funciones
+        \texttt{find\_reachable\_room\_goal()} y
+        \texttt{find\_safe\_candidate\_approach\_goals()} se actualizan para usar
+        \texttt{robot.\_safe\_obs\_map} en lugar del mapa de navmesh crudo, eliminando
+        la discordancia entre validación de metas y planificador.
+
+  \item \textbf{Corrección Problema 3 — escudo de colisiones local en ejecución}:
+        \texttt{execute\_nav\_replay()} acepta ahora el parámetro opcional
+        \texttt{dist\_map} (transformada de distancias del mapa seguro dilatado,
+        precalculada una vez antes de cada ejecución). Antes de cada acción
+        \texttt{move\_forward}, el escudo predice la siguiente celda de cuadrícula a
+        partir de la posición actual \texttt{curr\_pos\_on\_map} y el ángulo
+        \texttt{curr\_ang\_deg\_on\_map} del robot. Si la holgura en esa celda es
+        inferior a $\texttt{STOP\_CL}\,{=}\,2{,}0$ celdas, la ejecución se interrumpe
+        inmediatamente y se activa la recuperación; si la holgura está entre
+        $\texttt{STOP\_CL}$ y $\texttt{SLOW\_CL}\,{=}\,5{,}0$ celdas se emite un aviso
+        sin detener el movimiento. El escudo opera sobre el mismo mapa dilatado que el
+        visgraph, de modo que «celda segura» tiene idéntico significado en planificación
+        y en ejecución.
 \end{enumerate}
 
 \end{document}
