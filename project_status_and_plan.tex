@@ -1111,6 +1111,21 @@ disponibilidad del robot HSR en el laboratorio V4R del TU Wien.
         sin detener el movimiento. El escudo opera sobre el mismo mapa dilatado que el
         visgraph, de modo que «celda segura» tiene idéntico significado en planificación
         y en ejecución.
+
+  \item \textbf{Navegación one-shot — eliminados reintentos y recuperación}:
+        el escudo de colisiones usaba el mapa dilatado (\texttt{\_safe\_obs\_map})
+        para calcular la transformada de distancias, lo que hacía que el centro de
+        un pasillo de $\sim10$ celdas tuviera clearance $\approx 2$ en el mapa
+        dilatado y disparara paradas falsas al cruzar puertas. El escudo pasa a usar
+        \texttt{robot.map.obstacles\_map} (mapa crudo sin dilatar), que refleja el
+        espacio físico real; los umbrales se ajustan a
+        $\texttt{STOP\_CL}=1{,}0$ y $\texttt{SLOW\_CL}=2{,}5$ celdas.
+        Adicionalmente, se elimina la llamada a \texttt{nav\_recovery\_and\_replan()}
+        tras un fallo de ejecución y el bucle de reintentos con metas alternativas
+        en comandos de habitación. La navegación es ahora estrictamente one-shot:
+        se planifica una vez, se ejecuta una vez y se reporta el estado real de la
+        habitación; si la ejecución se interrumpe, el robot continúa desde la posición
+        actual sin ruta nueva.
 \end{enumerate}
 
 \end{document}
