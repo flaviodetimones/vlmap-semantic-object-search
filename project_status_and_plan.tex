@@ -1009,6 +1009,58 @@ disponibilidad del robot HSR en el laboratorio V4R del TU Wien.
         $= \text{longitud} + 0{,}5 \cdot \text{penalización}$. Los valores se imprimen
         en trazas \texttt{[safety]} tras cada planificación, facilitando el diagnóstico
         de rutas peligrosas y la futura migración a ROS/HSR.
+
+  \item \textbf{Corrección Bug 1 — comandos de habitación con validación real de
+        llegada}: los comandos de tipo \texttt{kitchen}, \texttt{dining room},
+        etc.\ fallaban porque el sistema navegaba al centroide geométrico del polígono
+        de la habitación (a menudo sobre un obstáculo), el planificador lo desplazaba a
+        un nodo visgraph cercano (frecuentemente en otra habitación) y después declaraba
+        éxito sin comprobar dónde estaba realmente el robot. Se implementa
+        \texttt{find\_reachable\_room\_goal()}, que enumera todas las celdas
+        navegables del interior de la habitación objetivo, las ordena por holgura
+        respecto a obstáculos y devuelve los top-$K$ candidatos seguros. Tras la
+        ejecución del camino se comprueba la habitación real con
+        \texttt{get\_room\_at\_cell()} y se valida mediante
+        \texttt{\_room\_instance\_matches()}, que acepta tanto coincidencia exacta como
+        de tipo canónico (\texttt{kitchen.001} satisface el comando \texttt{kitchen}).
+        Si la primera meta falla, se reintenta con los candidatos alternativos antes de
+        declarar fracaso. Solo se imprime ``Arrived at room X'' cuando la comprobación
+        pasa.
+
+  \item \textbf{Corrección Bug 2 — evidencia del heatmap domina en consultas
+        directas}: para consultas de objeto con señal real en el heatmap (p.ej.\
+        \texttt{sofa}), los priors de habitación dependían excesivamente de los
+        priors lingüísticos (LLM + tabla manual), ignorando que los componentes del
+        heatmap ya indicaban en qué habitación está el objeto. Además, nombres de
+        habitación específicos de la escena como \texttt{tv} no coincidían con los
+        fragmentos estándar (\texttt{living}) de la tabla manual. Se añade la tabla
+        \texttt{\_SEMANTIC\_ALIASES} que mapea nombres atípicos a familias semánticas
+        (\texttt{tv} $\to$ \texttt{living}, \texttt{laundryroom} $\to$
+        \texttt{laundry}, etc.) y se aplica en \texttt{\_manual\_prior()} y
+        \texttt{\_evidence\_prior()} mediante \texttt{\_normalize\_room\_for\_priors()}.
+        Se añade \texttt{compute\_heatmap\_room\_evidence()} que agrega la calidad de
+        componentes por instancia de habitación y normaliza a $[0,1]$. Se extiende
+        \texttt{compute\_room\_priors()} con los parámetros opcionales
+        \texttt{heatmap\_evidence} y \texttt{query\_type}: las consultas directas usan
+        pesos $0{,}65 \cdot \text{heatmap} + 0{,}20 \cdot \text{manual} + 0{,}15
+        \cdot \text{LLM}$, mientras que las indirectas mantienen
+        $0{,}45 \cdot \text{LLM} + 0{,}30 \cdot \text{manual} + 0{,}25 \cdot
+        \text{evidencia escena}$. En el bucle de navegación, tras anotar los
+        componentes con su habitación, se recalculan los priors con evidencia real
+        antes de seleccionar el candidato, de modo que \texttt{sofa} con tres
+        componentes en \texttt{tv} produce un prior $>0{,}86$ para \texttt{tv}.
+
+  \item \textbf{Corrección Bug 3 — puerta de seguridad bloquea ejecución de rutas
+        inseguras}: las métricas de seguridad \texttt{[safety]} existían pero eran
+        puramente informativas: el sistema ejecutaba igualmente rutas con
+        \texttt{goal\_cl=0.0} o \texttt{min\_cl=0.0}. Se añaden umbrales duros
+        configurables \texttt{\_MIN\_GOAL\_CLEARANCE=3{,}0} celdas y
+        \texttt{\_MIN\_PATH\_CLEARANCE=1{,}0} celdas. Antes de ejecutar cualquier
+        camino a un objeto, se evalúan dichos umbrales: si el goal o la ruta no los
+        superan, el centroide se marca como intentado en \texttt{\_tried\_centroids}
+        y se prueban hasta tres candidatos alternativos. Si ningún candidato
+        supera los umbrales, la consulta se omite con mensaje explícito. La
+        seguridad ya no es anotación, sino control de flujo.
 \end{enumerate}
 
 \end{document}
