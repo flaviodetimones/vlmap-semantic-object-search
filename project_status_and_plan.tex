@@ -1,0 +1,1014 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[spanish,es-noshorthands]{babel}
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{parskip}
+\usepackage{hyperref}
+\usepackage{enumitem}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{xcolor}
+\usepackage{longtable}
+\usepackage{amsmath}
+\usepackage{amssymb}
+
+\definecolor{done}{RGB}{0,140,0}
+\definecolor{partialcol}{RGB}{200,120,0}
+\definecolor{pendingcol}{RGB}{180,0,0}
+\definecolor{bugcol}{RGB}{140,0,140}
+
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{6pt}
+
+\hypersetup{colorlinks=true, linkcolor=black, urlcolor=blue}
+
+\title{\textbf{Búsqueda Semántica de Objetos en Simulación\\con Razonamiento por Habitaciones}\\[6pt]
+\large Estado del proyecto y plan de desarrollo\\[4pt]
+\normalsize VLMaps + YOLOE + Habitat-Sim \,$\cdot$\, HSSD como dataset principal\\
+Extensión futura: ROS\,1 Noetic + Toyota HSR}
+\author{Mario García Blasco}
+\date{15 de abril de 2026}
+
+\begin{document}
+
+\maketitle
+\tableofcontents
+\newpage
+
+% =============================================================================
+\section{Propósito del proyecto}
+% =============================================================================
+
+\subsection{Problema}
+
+Dado un objetivo expresado en lenguaje natural (por ejemplo, \textit{``find the
+laptop''} o \textit{``ve a la cocina y busca el lavabo''}), un robot simulado debe
+localizar el objeto de forma eficiente en un entorno interior doméstico. El robot
+opera en escenas HSSD (\textit{Habitat Static Scene Dataset}) renderizadas con
+Habitat-Sim. La escena principal es \textbf{102344280}, una vivienda de una planta
+con 15 habitaciones anotadas ($\sim$447\,m²).
+
+El proyecto no busca ampliar infraestructura genérica ni acumular datasets. Su
+finalidad es construir un sistema de búsqueda inteligente de objetos que entienda
+la estructura espacial de la vivienda: que razone sobre habitaciones y zonas, que
+decida dónde buscar según el tipo de objeto y el contexto, que navegue de forma
+semánticamente guiada y que verifique visualmente el resultado.
+
+\subsection{Hipótesis}
+
+Un sistema que combine tres niveles de conocimiento ---~razonamiento a nivel de
+habitación, memoria semántica de mobiliario (VLMaps) y verificación visual de
+vocabulario abierto (YOLOE)~--- encuentra objetos específicos de forma más
+eficiente que métodos que dependen de un solo nivel de información.
+
+\subsection{Los tres niveles de conocimiento}
+
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+\textbf{Nivel} & \textbf{Herramienta} & \textbf{Qué sabe} \\
+\midrule
+Habitación & \texttt{semantic\_config.json} (HSSD nativo) &
+  «Esto es la cocina» \\
+Mueble / zona & VLMaps (36 categorías HSSD) &
+  «Hay una encimera allí» \\
+Objeto específico & YOLOE (open-vocab) &
+  «Hay un portátil encima de esa mesa» \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{Idea clave: razonar sobre la casa, no solo sobre el mapa}
+
+\begin{enumerate}[start=0]
+  \item El sistema identifica las habitaciones de la escena y selecciona la más
+        probable para el objeto buscado (\textit{room-level reasoning}).
+  \item Un LLM traduce el objeto a categorías VLMap donde es probable encontrarlo:
+        \texttt{laptop} $\rightarrow$ \texttt{[table, counter, shelving]}.
+  \item VLMaps localiza instancias de esas categorías \textbf{dentro de la
+        habitación seleccionada}.
+  \item El robot navega al candidato más prometedor de esa habitación.
+  \item YOLOE mira con la cámara y confirma si el objeto está ahí.
+  \item Si no $\rightarrow$ siguiente candidato en la habitación, o cambio de
+        habitación. Si sí $\rightarrow$ \textbf{ENCONTRADO}.
+\end{enumerate}
+
+% =============================================================================
+\section{Alcance y decisiones de diseño}
+% =============================================================================
+
+\subsection{HSSD como dataset principal}
+
+HSSD es un conjunto de escenas de interiores sintéticas de alta calidad desarrolladas
+para Habitat-Sim. Frente a Matterport3D (MP3D), ofrece:
+
+\begin{itemize}
+  \item \textbf{Habitaciones anotadas nativamente}: cada escena incluye un fichero
+        \texttt{semantics/scenes/<id>.semantic\_config.json} con polígonos de planta
+        y nombres de habitación. La clase \texttt{SemanticSceneRoomProvider} los
+        rasteriza directamente sobre el grid VLMap sin intervención manual.
+  \item \textbf{Geometría limpia e iluminación controlada}: las escenas sintéticas
+        facilitan la verificación visual con YOLOE y eliminan artefactos de
+        reconstrucción fotogramétrica.
+  \item \textbf{Alineación con el objetivo del proyecto}: el razonamiento por
+        habitaciones requiere anotaciones de habitaciones fiables. HSSD las
+        proporciona de serie; MP3D requeriría etiquetado manual con LabelMe.
+\end{itemize}
+
+La escena principal es \textbf{102344280}: una vivienda de una planta con 15
+habitaciones (kitchen, dining room, bedroom $\times$3, bathroom $\times$3,
+hallway, entryway, closet $\times$3, tv room).
+
+\subsection{MP3D como soporte secundario}
+
+Toda la funcionalidad MP3D existente se mantiene intacta: el sistema sigue
+funcionando con escenas MP3D y existe un \texttt{LabelMeRoomProvider} listo para
+usar si se ejecuta el etiquetado manual. Sin embargo, MP3D no condiciona la hoja
+de ruta actual:
+
+\begin{itemize}
+  \item El etiquetado LabelMe de las 3 escenas MP3D queda \textbf{diferido}
+        como tarea secundaria.
+  \item La construcción de VLMaps para escenas MP3D adicionales queda diferida.
+  \item Las limitaciones visuales de MP3D (texturas ruidosas, reconstrucciones
+        imperfectas) perjudican la verificación YOLOE y no son representativas
+        de la capacidad real del método.
+\end{itemize}
+
+\subsection{Razonamiento por habitaciones como prioridad}
+
+La siguiente gran fase del proyecto es que el robot pueda:
+
+\begin{itemize}
+  \item Recibir instrucciones como \textit{``ve a la cocina''}, \textit{``busca
+        el lavabo''} o \textit{``busca la pica en la cocina''}.
+  \item Identificar las habitaciones de la escena y razonar sobre cuál visitar.
+  \item Decidir, cuando un intento falla, cuál es la siguiente habitación o zona
+        más probable.
+  \item Mantener un estado estructurado de la búsqueda (habitaciones visitadas,
+        candidatos probados, resultados obtenidos).
+\end{itemize}
+
+Esta fase es \textbf{prioritaria} frente a la inserción de objetos nuevos en
+simulación, frente a los baselines M1/M3 y frente a la evaluación cuantitativa.
+Sin razonamiento por habitaciones, el sistema no puede demostrar la ventaja del
+nivel de conocimiento más alto de la hipótesis.
+
+\subsection{Inspiración conceptual: MoMa-LLM}
+
+El paper \textit{Language-Grounded Dynamic Scene Graphs for Interactive Object
+Search with Mobile Manipulation} (Honerkamp et al., RSS SemRob 2024) propone
+usar un LLM para razonar sobre un grafo de escena estructurado por habitaciones.
+
+Este proyecto adopta como inspiración conceptual: habitaciones como entidades
+explícitas, estado estructurado para el LLM, historial compacto de búsqueda y
+selección iterativa de la siguiente habitación. \textbf{No se utiliza ningún
+código del repositorio de Toyota Motor Europe} (MoMa-LLM). La implementación
+es completamente propia.
+
+Diferencia principal: MoMa-LLM construye el grafo dinámicamente durante la
+exploración; este proyecto usa un VLMap pre-construido y habitaciones
+pre-anotadas (HSSD), lo que permite una evaluación más controlada.
+
+% =============================================================================
+\section{Estado actual del sistema (14 de abril de 2026)}
+% =============================================================================
+
+\subsection{Infraestructura --- \textcolor{done}{COMPLETADA}}
+
+\begin{itemize}
+  \item[\checkmark] Docker con CUDA 12.1 + Habitat-Sim 0.3.1 + conda (Python 3.9)
+  \item[\checkmark] 3 escenas MP3D con VLMaps construidos:
+        \textbf{gTV8FGcVJC9\_1}, \textbf{jh4fc5c5qoQ\_1}, \textbf{mJXqzFtmKg4\_1}
+  \item[\checkmark] 1 escena HSSD integrada: \textbf{102344280} (15 habitaciones,
+        $\sim$447\,m²), VLMap construido e indexado
+  \item[\checkmark] Menú interactivo en Docker (\texttt{menu.sh}) para toda la pipeline
+  \item[\checkmark] Submodule git \texttt{third\_party/vlmaps} (rama \texttt{tfg-modifications})
+  \item[\checkmark] Repositorio limpio en GitHub: \texttt{mobileclip\_blt.ts} (571\,MB)
+        eliminado del historial con \texttt{git-filter-repo}
+\end{itemize}
+
+\subsection{Navegación interactiva M2 --- \textcolor{done}{COMPLETADA}}
+
+\begin{itemize}
+  \item[\checkmark] Pipeline completa: instrucción $\rightarrow$ LLM $\rightarrow$
+        goal selection $\rightarrow$ visgraph $\rightarrow$ navegación live con
+        visualización
+  \item[\checkmark] \texttt{plan\_path\_only()}: planificación sin teletransporte;
+        camino mostrado como línea roja 800\,ms antes de ejecutar
+  \item[\checkmark] Movimientos lentos y fluidos (\texttt{\_NAV\_STEP\_DELAY\_MS = 80\,ms})
+  \item[\checkmark] Dirección de cara corregida:
+        $\theta = \arctan2(-\Delta y, -\Delta x)$
+  \item[\checkmark] Goal selection con 3 niveles de fallback (room centroid / BFS /
+        heatmap peak)
+  \item[\checkmark] Visgraph con margen de 4\,px ($\sim$20\,cm); recuperación de
+        colisión (giro 30° + replanificación); hasta 3 replanes y 8 candidatos
+  \item[\checkmark] Heatmap semántico overlay (JET colormap, 50\,\% opacidad)
+  \item[\checkmark] Cámara 1ª persona con inclinación $-30°$
+  \item[\checkmark] Multi-goal retry (hasta 8 candidatos por categoría, por BFS)
+\end{itemize}
+
+\subsection{Mapper LLM --- \textcolor{done}{COMPLETADO}}
+
+\begin{itemize}
+  \item[\checkmark] El LLM traduce objetos no-VLMap a categorías VLMap probables.
+        Ejemplo: \texttt{laptop} $\rightarrow$ \texttt{[table, counter, shelving]}
+  \item[\checkmark] Distingue queries directas (\texttt{sofa} $\in$ categorías HSSD)
+        e indirectas (\texttt{laptop} $\notin$ categorías HSSD)
+  \item[\checkmark] Room-based reasoning: sugiere habitaciones probables además de muebles.
+        Ejemplo: \texttt{laptop} $\rightarrow$ \texttt{rooms: [office, bedroom]}
+  \item[\checkmark] Prompt con 6 few-shot examples incluyendo rooms
+\end{itemize}
+
+\subsection{YOLOE como verificador --- \textcolor{done}{COMPLETADO}}
+
+\begin{itemize}
+  \item[\checkmark] Worker persistente (\texttt{\_yoloe\_persistent\_worker.py}):
+        modelo cargado una sola vez; inferencias $\sim$100--500\,ms
+  \item[\checkmark] Protocolo stdout correcto: diagnósticos a \texttt{sys.stderr},
+        \texttt{start()} lee hasta recibir \texttt{"READY"}
+  \item[\checkmark] \texttt{mobileclip\_blt.ts} copiado automáticamente al arrancar
+        con búsqueda en múltiples rutas candidatas
+  \item[\checkmark] Centrado visual iterativo (visual servoing): hasta 6 iteraciones
+        de 5° ($\pm$15\,\% tolerancia)
+  \item[\checkmark] Flujo de verificación en 3 stages:
+    \begin{enumerate}
+      \item Standoff 0,25\,m --- YOLOE síncrono
+      \item Scan 360° in situ --- YOLOE asíncrono (hilo bg)
+      \item Componente alternativa del heatmap --- YOLOE síncrono
+    \end{enumerate}
+  \item[\checkmark] 15 categorías YOLOE-incompatibles saltan la verificación
+        (wall, floor, ceiling, beam, railing, etc.)
+  \item[\checkmark] Caché global \texttt{get\_session(target)}: reutiliza sesión
+        entre instrucciones
+\end{itemize}
+
+\subsection{Filtros de calidad y heatmap --- \textcolor{done}{COMPLETADOS}}
+
+\begin{itemize}
+  \item[\checkmark] Filtro de coherencia de heatmaps:
+        mín.\ 30 celdas, $\geq$30\,\% dominancia, $\leq$20 componentes conexas
+  \item[\checkmark] Filtro por tamaño medio de regiones:
+        descarta contornos $<$30\,\% del área media
+  \item[\checkmark] Wall filter:
+        ratio BFS/euclídea $>3\times$ descarta candidatos tras paredes
+  \item[\checkmark] Postprocess heatmap con fórmula de calidad por componente
+        (ver Sección~\ref{sec:heatmap-flow})
+  \item[\checkmark] Umbral de confianza YOLOE subido de 0,25 a 0,40
+  \item[\checkmark] IndexError boundary corregido con clamp en
+        \texttt{plan\_path\_only()}
+\end{itemize}
+
+\subsection{Integración HSSD --- \textcolor{done}{COMPLETADA}}
+
+\begin{itemize}
+  \item[\checkmark] \texttt{dataset\_type=hssd} activa la rama HSSD sin romper MP3D
+  \item[\checkmark] \texttt{scene\_dataset\_config\_file} declarado en Hydra config
+  \item[\checkmark] Navmesh recomputado al iniciar con parámetros correctos
+  \item[\checkmark] 36 categorías HSSD en \texttt{get\_categories("hssd")}
+  \item[\checkmark] \texttt{SemanticSceneRoomProvider}: lee
+        \texttt{semantic\_config.json} y rasteriza polígonos de habitación sobre
+        el grid VLMap
+  \item[\checkmark] Navegación interactiva validada en escena 102344280
+\end{itemize}
+
+\subsection{Colocación de objetos personalizados --- \textcolor{done}{COMPLETADA}}
+
+\begin{itemize}
+  \item[\checkmark] \texttt{place\_objects.py}: define objetos 3D (.glb) via JSON config
+  \item[\checkmark] Carga automática al iniciar; objetos visibles para YOLOE pero
+        no en VLMap
+\end{itemize}
+
+\subsection{Resumen de estado}
+
+\begin{center}
+\begin{tabular}{ll}
+\toprule
+\textbf{Componente} & \textbf{Estado} \\
+\midrule
+Infraestructura Docker + Habitat + VLMaps & \textcolor{done}{Hecho} \\
+Navegación interactiva M2 (BFS + colisiones) & \textcolor{done}{Hecho} \\
+Mapper LLM (objeto $\rightarrow$ cats + rooms) & \textcolor{done}{Hecho} \\
+YOLOE persistente + 360° scan + visual servoing & \textcolor{done}{Hecho} \\
+Filtros de calidad (coherencia, área, pared) & \textcolor{done}{Hecho} \\
+Fórmula de calidad por componente (quality) & \textcolor{done}{Hecho} \\
+Integración HSSD completa & \textcolor{done}{Hecho} \\
+Colocación de objetos personalizados & \textcolor{done}{Hecho} \\
+Fase A: capa de habitaciones sobre HSSD & \textcolor{done}{Hecho} \\
+Fase B: \texttt{RoomState} + \texttt{SearchState} & \textcolor{done}{Hecho} \\
+Fase C: priors objeto $\rightarrow$ habitación & \textcolor{done}{Hecho} \\
+\midrule
+\textbf{Razonamiento por habitaciones (Fases D--H)} &
+  \textcolor{pendingcol}{\textbf{Siguiente prioridad}} \\
+Baselines M1 y M3 & \textcolor{partialcol}{Posterior} \\
+Evaluación cuantitativa & \textcolor{partialcol}{Posterior} \\
+Objetos nuevos en simulación & \textcolor{partialcol}{Posterior} \\
+Extensión ROS\,1 Noetic + Toyota HSR & \textcolor{partialcol}{Futuro} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+% =============================================================================
+\section{Arquitectura funcional actual}
+% =============================================================================
+
+\subsection{Pipeline de búsqueda M2}
+
+El flujo completo del sistema actual es:
+
+\begin{enumerate}
+  \item \textbf{Instrucción}: el usuario introduce una query en lenguaje natural.
+  \item \textbf{Parsing LLM}: \texttt{parse\_object\_goal\_instruction()} (GPT-4o-mini)
+        extrae categorías semánticas de la instrucción.
+  \item \textbf{Heatmap semántico}: para cada categoría, \texttt{compute\_heatmap()}
+        genera un mapa de probabilidad 2D a partir de los scores CLIP del VLMap.
+  \item \textbf{Postproceso}: \texttt{postprocess\_heatmap()} filtra ruido, calcula
+        componentes conexos y asigna un score de calidad a cada componente.
+  \item \textbf{Selección de goal}: se elige el candidato más cercano por coste BFS
+        (M2) o el de mayor calidad (M3, futuro).
+  \item \textbf{Planificación}: \texttt{plan\_path\_only()} calcula el camino
+        con visgraph sin ejecutarlo.
+  \item \textbf{Navegación}: el robot recorre el camino con detección de colisiones
+        y replanificación automática.
+  \item \textbf{Verificación YOLOE}: en 3 stages (standoff, 360° scan, alternativa).
+  \item \textbf{Retry}: si falla, siguiente candidato (hasta 8). Si se agotan,
+        siguiente categoría.
+\end{enumerate}
+
+\subsection{Flujo completo del heatmap}
+\label{sec:heatmap-flow}
+
+\subsubsection*{Paso 1 --- Scores CLIP por vóxel}
+
+Cada vóxel del mapa 3D tiene un vector de scores CLIP de dimensión $|\mathcal{C}|$.
+Para una query dada, se extrae el score $s_i \in [0,1]$ de cada vóxel $i$ para la
+categoría objetivo. Solo se retienen vóxeles con argmax en esa categoría y
+$s_i > 0{,}3$.
+
+\subsubsection*{Paso 2 --- Proyección 2D (max-pool por columna)}
+
+Los scores 3D se proyectan sobre el plano del suelo tomando el máximo por celda
+$(r, c)$. Resultado: heatmap flotante $gs \times gs$ (por defecto $gs = 960$).
+
+\subsubsection*{Paso 3 --- Difusión por distancia}
+
+Difusión basada en \texttt{distance\_transform\_edt}: caída lineal $\times 0{,}3$
+por celda. Celdas con score $< 0{,}15$ se anulan (franja $\sim$3 celdas = 15\,cm).
+
+\subsubsection*{Paso 4 --- Suavizado Gaussiano}
+
+Gaussian blur $5\times5$, $\sigma=1{,}0$ para suprimir ruido de alta frecuencia.
+
+\subsubsection*{Paso 5 --- Umbral relativo y componentes conectados}
+
+Binarización con $t = 0{,}5 \times \max(\text{heatmap suavizado})$. Componentes
+conexos (8-conectividad). Para cada componente: área, score máximo, score medio,
+bounding box, centroide.
+
+\subsubsection*{Paso 6 --- Scoring interno y filtro relativo}
+
+\[
+  \textit{score}(r) = \textit{mean\_val}(r) \cdot \log(1 + \textit{area}(r))
+\]
+Se descartan componentes con $\textit{score}(r) < 0{,}2 \cdot \max_j \textit{score}(j)$.
+
+\subsubsection*{Paso 7 --- Fórmula de calidad}
+
+\[
+  \textit{quality}(r) = 0{,}3 \cdot \widehat{\textit{area}}(r)
+                      + 0{,}4 \cdot \overline{s}(r)
+                      + 0{,}3 \cdot \delta(r)
+\]
+donde $\widehat{\textit{area}}$ es el área normalizada, $\overline{s}$ el score
+CLIP medio y $\delta$ la densidad (celdas activas / bounding box).
+
+\subsubsection*{Paso 8 --- Selección del goal}
+
+\texttt{select\_safe\_goal\_from\_path()} recorre el camino planificado y elige el
+último waypoint con score no nulo, garantizando visibilidad directa al objeto.
+
+\subsection{Proveedor de habitaciones HSSD}
+
+La clase \texttt{SemanticSceneRoomProvider} (en \texttt{room\_provider.py}) lee
+el fichero \texttt{semantics/scenes/<id>.semantic\_config.json} de cada escena HSSD
+y expone:
+
+\begin{itemize}
+  \item \texttt{build(config\_path, gs, hab\_to\_grid)}: lee
+        \texttt{region\_annotations}, convierte cada polígono de Habitat world a
+        coordenadas del grid VLMap mediante \texttt{hab\_to\_grid(x, z)}, y rasteriza
+        con test punto-en-polígono. Resultado:
+        \texttt{\_region\_grid[gs, gs]} (int32, 0 = sin etiquetar).
+  \item \texttt{get\_room\_at\_cell(row, col)} $\rightarrow$ nombre de la habitación
+        o \texttt{None}.
+  \item \texttt{get\_room\_centroid(room\_name)} $\rightarrow$ (row, col) del centro
+        de la habitación.
+  \item \texttt{list\_rooms()} $\rightarrow$ lista de nombres de todas las
+        habitaciones.
+\end{itemize}
+
+Cada región almacena: \texttt{id}, \texttt{name}, \texttt{category},
+\texttt{centroid [r, c]}, \texttt{poly\_xz}, \texttt{floor\_height}.
+
+\subsection{Archivos clave del proyecto}
+
+\begin{center}
+\begin{tabular}{ll}
+\toprule
+\textbf{Archivo} & \textbf{Rol} \\
+\midrule
+\texttt{application/interactive\_object\_nav.py} &
+  Pipeline de navegación principal \\
+\texttt{vlmaps/robot/habitat\_lang\_robot.py} &
+  Robot + visgraph + \texttt{plan\_path\_only} \\
+\texttt{vlmaps/utils/llm\_utils.py} &
+  Mapper LLM: objeto $\rightarrow$ categorías + habitaciones \\
+\texttt{vlmaps/utils/yoloe\_utils.py} &
+  YoloeSession: worker persistente, sync/async \\
+\texttt{vlmaps/utils/\_yoloe\_persistent\_worker.py} &
+  Subprocess YOLOE aislado \\
+\texttt{vlmaps/utils/room\_provider.py} &
+  SemanticSceneRoomProvider (HSSD nativo) \\
+\texttt{vlmaps/utils/room\_map\_utils.py} &
+  Room segmentation + \texttt{find\_room\_goal()} \\
+\texttt{vlmaps/utils/navigation\_utils.py} &
+  \texttt{plan\_to\_pos\_v2}: visgraph + BFS \\
+\texttt{config/object\_goal\_navigation\_cfg.yaml} &
+  Config Hydra principal \\
+\texttt{docker/menu.sh} &
+  Menú interactivo Docker \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+% =============================================================================
+\section{Próxima fase: búsqueda con razonamiento por habitaciones}
+\label{sec:room-aware}
+% =============================================================================
+
+\subsection{Visión general}
+
+El sistema actual trata la escena como un mapa plano: genera un heatmap global,
+elige el candidato más cercano o de mayor calidad, y navega hacia él sin considerar
+la estructura de la vivienda. Esto implica que el robot puede cruzar toda la casa
+para ir a un candidato ruidoso cuando la habitación correcta está al lado.
+
+La siguiente fase introduce una \textbf{capa de razonamiento por habitaciones}
+que separa la decisión de búsqueda en dos niveles:
+
+\begin{itemize}
+  \item \textbf{Capa alta}: ¿en qué habitación o zona tiene más sentido buscar ahora?
+  \item \textbf{Capa baja}: dentro de esa habitación, ¿qué candidato concreto priorizo?
+\end{itemize}
+
+Esto permite comportamientos como: buscar \texttt{sink} primero en
+\texttt{bathroom}; si \texttt{bathroom} falla, probar \texttt{kitchen}; dentro de
+\texttt{kitchen}, priorizar \texttt{counter} o \texttt{cabinet} según la query.
+
+La arquitectura se implementa en 8 fases incrementales (A--H). Cada fase añade
+una capacidad concreta sin romper lo anterior.
+
+\subsection{Fase A --- Capa de habitaciones sobre HSSD --- \textcolor{done}{COMPLETADA}}
+
+\textbf{Objetivo}: dejar de tratar la escena como un mapa plano.
+
+\textbf{Implementación realizada}:
+
+\begin{itemize}
+  \item \texttt{SemanticSceneRoomProvider.build()} recibe una función
+        \texttt{hab\_to\_grid(x, z)} que transforma coordenadas Habitat world a
+        índices del grid VLMap usando \texttt{init\_hab\_tf} y
+        \texttt{base\_transform}. Los polígonos de habitación se rasteriza
+        directamente en espacio grid.
+  \item Cada \textbf{celda del grid} tiene room\_id via
+        \texttt{get\_room\_at\_cell(row, col)}.
+  \item Cada \textbf{centroide de componente} del heatmap se anota con su
+        habitación. El sistema imprime \texttt{Current room} y
+        \texttt{Candidates by room} en cada query.
+  \item Si la instrucción es un \textbf{nombre de habitación} (e.g.,
+        \textit{``go to the kitchen''}), el robot navega directamente al
+        centroide de la habitación sin calcular heatmaps ni ejecutar
+        verificación YOLOE. Al llegar, se detiene.
+\end{itemize}
+
+\textbf{Nota}: la verificación visual de llegada a una habitación (confirmar que
+el robot está en la cocina mirando objetos típicos) no es necesaria en simulación,
+donde las coordenadas son exactas. Para un robot real con localización imperfecta,
+esta verificación podría reactivarse como capa adicional de seguridad.
+
+\textbf{Pendiente para fases posteriores}: el parsing LLM actual separa
+instrucciones compuestas como \textit{``find the sofa in the living room''} en
+dos targets independientes (\texttt{['sofa', 'living\_room']}), ejecutándolos
+secuencialmente. El sistema necesita un parsing semántico por niveles que
+interprete la instrucción completa: habitación objetivo + objeto dentro de ella.
+Esto es requisito para instrucciones complejas tipo \textit{``ve a por la
+botella de agua que está encima de la mesa de la cocina''}.
+
+\subsection{Fase B --- Representación de estado por habitación --- \textcolor{done}{COMPLETADA}}
+
+Implementada en \texttt{vlmaps/utils/search\_state.py}.
+
+\textbf{Estructura real implementada}:
+
+\begin{verbatim}
+@dataclass
+class RoomState:
+    name: str
+    centroid: Tuple[float, float]   # (row, col) en grid VLMap
+    total_cells: int                # celdas de región en region_grid
+    free_cells: int                 # celdas navegables (intersec. obstacles_map)
+    times_visited: int
+    objects_seen: List[str]         # confirmados por YOLOE en esta room
+    candidates_tried: int
+    candidates_confirmed: int
+    target_relevance: float         # prior Fase C (0-1, normalizado)
+    target_found_here: bool
+    # derived:
+    explored_ratio = free_cells / total_cells
+\end{verbatim}
+
+\texttt{SearchState} agrega un \texttt{RoomState} por habitación y registra:
+\texttt{visit\_history} (secuencia de rooms visitadas), \texttt{current\_room},
+\texttt{found}. Se construye una instancia por target al inicio de cada instrucción.
+Métodos: \texttt{update\_current\_room()}, \texttt{record\_candidate()},
+\texttt{record\_object\_seen()}, \texttt{mark\_found()}, \texttt{compute\_priors()}.
+
+\subsection{Fase C --- Priors objeto $\rightarrow$ habitación --- \textcolor{done}{COMPLETADA}}
+
+Implementada en \texttt{vlmaps/utils/room\_priors.py}.
+Integrada en \texttt{SearchState.compute\_priors()} y en el bucle principal de
+\texttt{interactive\_object\_nav.py}.
+
+\textbf{Fórmula de fusión}:
+
+\[
+  \textit{prior\_final}(r) =
+    0{,}5 \cdot \textit{prior\_llm}(r)
+  + 0{,}3 \cdot \textit{prior\_manual}(r)
+  + 0{,}2 \cdot \textit{evidence}(r)
+\]
+
+Los scores se recortan a $[0,1]$ y se normalizan para que sumen 1.
+
+\textbf{Tres fuentes implementadas}:
+
+\begin{enumerate}
+  \item \textbf{LLM} (\texttt{\_query\_llm\_room\_prior}): GPT-4o-mini recibe la
+        query y la lista de habitaciones conocidas de la escena y devuelve un JSON
+        \texttt{\{room: score\}}. Robusto ante fallos de red (devuelve dict vacío).
+  \item \textbf{Tabla manual} (\texttt{\_MANUAL\_TABLE}): $\sim$35 entradas clave
+        (e.g.\ \texttt{bed}$\to$\texttt{bedroom:1.0},
+        \texttt{sink}$\to$\texttt{bathroom:0.9, kitchen:0.7}). Matching por
+        subcadena entre fragmento de tabla y nombre real de habitación en escena.
+  \item \textbf{Evidencia escena} (\texttt{\_evidence\_prior}): tabla de
+        co-ocurrencia (\texttt{\_CO\_OCCURRENCE}) — si ya se vieron \texttt{toilet}
+        o \texttt{bathtub} en una habitación, su score de \texttt{bathroom} se
+        refuerza. Usa \texttt{RoomState.objects\_seen} (actualizado en tiempo real).
+\end{enumerate}
+
+\textbf{Integración en el pipeline}: al inicio de cada instrucción de búsqueda se
+imprime:
+\begin{verbatim}
+  Room priors for 'sink': bathroom=0.62, kitchen=0.28, living room=0.07, ...
+\end{verbatim}
+El resultado se almacena en \texttt{RoomState.target\_relevance} de cada habitación,
+listo para ser consumido por el selector de Fase~D.
+
+\subsection{Fase D --- Selector de habitación}
+
+\textbf{Objetivo}: elegir la mejor habitación para buscar en cada momento.
+
+En vez de mandar al robot directamente al mejor candidato global, se calcula una
+puntuación por habitación:
+
+\[
+  \textit{room\_score}(r) =
+    w_1 \cdot \textit{prior}(r)
+  + w_2 \cdot \textit{evidence}(r)
+  + w_3 \cdot \textit{unexplored}(r)
+  - w_4 \cdot \textit{cost}(r)
+  - w_5 \cdot \textit{penalty}(r)
+\]
+
+Donde:
+
+\begin{itemize}
+  \item $\textit{prior}(r)$: relevancia de la habitación para la query, según
+        Fase~C.
+  \item $\textit{evidence}(r)$: suma de scores de calidad VLMap de los candidatos
+        dentro de la habitación.
+  \item $\textit{unexplored}(r) = 1 - \textit{explored\_ratio}(r)$: preferir
+        habitaciones no agotadas.
+  \item $\textit{cost}(r)$: distancia BFS desde la posición actual del robot al
+        centroide de la habitación, normalizada.
+  \item $\textit{penalty}(r)$: penalización acumulada por intentos fallidos
+        previos en esa habitación.
+\end{itemize}
+
+Los pesos $w_1 \ldots w_5$ se ajustan empíricamente. Valores iniciales sugeridos:
+$w_1 = 0{,}3$, $w_2 = 0{,}25$, $w_3 = 0{,}2$, $w_4 = 0{,}15$, $w_5 = 0{,}1$.
+
+\textbf{Esfuerzo estimado}: 1--2 sesiones.
+
+\subsection{Fase E --- Selección de candidatos intra-habitación}
+
+\textbf{Objetivo}: una vez elegida la habitación, reutilizar el pipeline
+existente dentro de ella.
+
+\begin{enumerate}
+  \item Filtrar \texttt{kept\_components} del heatmap a aquellos cuyo centroide
+        cae dentro de la habitación seleccionada (via
+        \texttt{get\_room\_at\_cell()}).
+  \item Ordenar los candidatos filtrados por \texttt{quality} (fórmula ya
+        implementada).
+  \item Navegar al mejor candidato con la pipeline M2 existente (visgraph +
+        colisiones + YOLOE).
+  \item Si no hay candidatos sólidos en la habitación, explorar el frontier
+        más cercano dentro de ella.
+  \item Si la query es de ubicación conocida (e.g., ``ve a la cocina''),
+        navegar directamente al centroide de la habitación.
+\end{enumerate}
+
+Esto \textbf{no descarta la pipeline actual}: la reutiliza con un filtro espacial
+por habitación.
+
+\textbf{Esfuerzo estimado}: 1 sesión.
+
+\subsection{Fase F --- Acciones de alto nivel}
+
+\textbf{Objetivo}: definir un vocabulario de acciones que abstraiga la navegación
+de bajo nivel.
+
+\begin{center}
+\begin{tabular}{lp{9cm}}
+\toprule
+\textbf{Acción} & \textbf{Descripción} \\
+\midrule
+\texttt{go\_to\_room(room)} & Navegar al centroide de la habitación \\
+\texttt{explore\_room(room)} & Cobertura sistemática de celdas no visitadas
+  dentro de la habitación \\
+\texttt{inspect\_candidate(room, cand)} & Navegar a candidato específico +
+  verificar con YOLOE \\
+\texttt{verify\_target} & Scan 360° + visual servoing en posición actual \\
+\texttt{done} & Objetivo encontrado, fin de la búsqueda \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Internamente, \texttt{go\_to\_room} e \texttt{inspect\_candidate} usan la
+navegación visgraph existente. \texttt{explore\_room} es nuevo: genera waypoints
+que cubran las celdas navegables no visitadas de la habitación.
+
+\textbf{Esfuerzo estimado}: 1--2 sesiones.
+
+\subsection{Fase G --- Papel del LLM en la búsqueda}
+
+\textbf{Objetivo}: el LLM decide estrategia, no trayectoria.
+
+El LLM recibe un \textbf{estado estructurado compacto} y decide qué habitación
+visitar y qué acción ejecutar. No recibe contexto bruto enorme: recibe un resumen
+estructurado.
+
+Ejemplo de prompt interno:
+
+\begin{verbatim}
+Task: find sink
+
+Current room: hallway
+
+Known rooms:
+  - bathroom: objects [mirror, toilet, shower], explored 80%,
+              1 candidate tried (vanity-zone: YOLOE no confirmation)
+  - kitchen:  objects [counter, cabinet, table], explored 60%,
+              0 candidates tried
+  - living_room: objects [sofa, table, shelf], explored 90%
+
+Unexplored zones:
+  - bathroom: near rear corner
+  - kitchen: near counter area
+
+Which room should be searched next, and which category or zone
+inside it should be prioritized?
+\end{verbatim}
+
+El LLM devuelve la habitación y zona sugeridas. La puntuación por habitación
+(Fase~D) se usa como \textit{fallback} numérico si el LLM no da respuesta clara,
+o como validación cruzada.
+
+\textbf{Historial compacto}: solo las últimas 5 acciones, habitaciones exploradas,
+candidatos probados y motivo de fallo (no detectado / heatmap débil / navegación
+fallida). Esto evita inflar el prompt.
+
+\textbf{Esfuerzo estimado}: 2 sesiones.
+
+\subsection{Fase H --- Métricas de evaluación}
+
+\textbf{Objetivo}: medir si el razonamiento por habitaciones mejora la búsqueda.
+
+Métricas estándar de navegación semántica:
+
+\begin{itemize}
+  \item \textbf{SR} (Success Rate): fracción de episodios donde YOLOE confirma
+        la detección.
+  \item \textbf{SPL} (Success weighted by Path Length): SR ponderado por la
+        eficiencia del camino.
+  \item \textbf{Wrong Visits}: candidatos visitados sin detección positiva antes
+        del éxito.
+  \item \textbf{Time to Find}: pasos de simulación hasta la confirmación.
+\end{itemize}
+
+Métricas nuevas específicas del razonamiento por habitaciones:
+
+\begin{itemize}
+  \item \textbf{CFR} (Correct First Room): ¿fue la primera habitación visitada
+        la que contenía el objetivo?
+  \item \textbf{CT2R} (Correct Top-2 Rooms): ¿estaba la habitación correcta
+        entre las 2 primeras visitadas?
+  \item \textbf{Rooms Before Success}: número de habitaciones visitadas antes
+        de encontrar el objeto.
+  \item \textbf{Inspections Before Success}: número de candidatos inspeccionados
+        antes del éxito.
+\end{itemize}
+
+Estas métricas permiten demostrar si el razonamiento por habitaciones aporta
+valor real frente a una búsqueda plana.
+
+\subsection{Orden de implementación}
+
+\begin{center}
+\begin{tabular}{clll}
+\toprule
+\textbf{Fase} & \textbf{Descripción} & \textbf{Depende de} & \textbf{Esfuerzo} \\
+\midrule
+A & Capa de habitaciones sobre HSSD & Infraestructura existente & \textcolor{done}{Hecho} \\
+B & RoomState + SearchState & Fase A & \textcolor{done}{Hecho} \\
+C & Priors objeto $\rightarrow$ habitación & Mapper LLM existente & \textcolor{done}{Hecho} \\
+D & Selector de habitación (scoring) & Fases B + C & 1--2 sesiones \\
+E & Candidatos intra-habitación & Fase D + pipeline M2 & 1 sesión \\
+F & Acciones de alto nivel & Fase E & 1--2 sesiones \\
+G & LLM estratégico con estado & Fases B + C + F & 2 sesiones \\
+H & Métricas de evaluación & Fase F & 1 sesión \\
+\midrule
+  & \textbf{Total estimado} & & \textbf{9--12 sesiones} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Las fases A--C son preparatorias y pueden implementarse rápidamente sobre la
+infraestructura existente. Las fases D--E son el núcleo del cambio de
+comportamiento. Las fases F--G añaden la inteligencia de alto nivel. La fase H
+cierra el ciclo con evaluación.
+
+% =============================================================================
+\section{Fase posterior: nuevos objetos y evaluación}
+% =============================================================================
+
+Una vez consolidado el razonamiento por habitaciones, el proyecto pasa a una fase
+de evaluación y ampliación:
+
+\subsection{Baselines M1 y M3}
+
+\begin{itemize}
+  \item \textbf{M1 --- Navegación aleatoria}: el robot elige celdas navegables
+        al azar como goals. Sirve como cota inferior de rendimiento.
+  \item \textbf{M3 --- Ranking por calidad}: candidatos ordenados por
+        \texttt{quality} (fórmula ya implementada) sin razonamiento por
+        habitaciones. Mide si la calidad semántica aporta sobre la proximidad
+        pura (M2).
+\end{itemize}
+
+Ambos baselines se implementan como variantes del pipeline existente y se comparan
+con el sistema room-aware de la Sección~\ref{sec:room-aware}.
+
+\subsection{Evaluación cuantitativa}
+
+Script automático que ejecuta $N$ trials con objetos conocidos y genera:
+
+\begin{itemize}
+  \item CSV con resultados por episodio (SR, SPL, Wrong Visits, CFR, CT2R, etc.)
+  \item Gráficas comparativas: M1 vs M2 vs M3 vs room-aware
+  \item Tablas para la memoria del TFG
+\end{itemize}
+
+Para HSSD: usar las anotaciones nativas del \texttt{semantic\_config.json} para
+generar trials con ground truth automatizado.
+
+\subsection{Objetos adicionales en simulación}
+
+Usar \texttt{place\_objects.py} (ya implementado) para insertar objetos de interés:
+
+\begin{itemize}
+  \item \texttt{bottle}, \texttt{backpack}, \texttt{ball}, \texttt{laptop}
+  \item Colocados en posiciones conocidas para evaluación con ground truth
+  \item Visibles para YOLOE, no presentes en el VLMap pre-construido
+\end{itemize}
+
+% =============================================================================
+\section{Extensión futura: ROS\,1 Noetic + Toyota HSR}
+% =============================================================================
+
+El proyecto se desarrolla y valida primero en simulación, con HSSD como entorno
+principal y con foco en la capacidad de razonamiento por habitaciones y búsqueda
+semántica de objetos. Una vez consolidada la capa de decisión de alto nivel y
+evaluado el sistema sobre tareas representativas, se contempla como línea de
+extensión la migración a ROS\,1 Noetic y su integración con el robot Toyota HSR.
+
+La arquitectura de razonamiento por habitaciones (Sección~\ref{sec:room-aware})
+está diseñada para ser independiente de la plataforma de ejecución: las capas
+de decisión (selector de habitación, LLM estratégico, estado de búsqueda) no
+dependen de Habitat-Sim. La migración sustituiría únicamente las capas de
+percepción, navegación y ejecución por sus equivalentes en robot real:
+
+\begin{itemize}
+  \item \texttt{vlmap\_server} (nodo ROS): carga el VLMap y expone un servicio
+        \texttt{/vlmap/query} para consultas semánticas.
+  \item \texttt{vlmap\_nav} (nodo ROS): recibe instrucciones en lenguaje natural,
+        ejecuta el razonamiento por habitaciones y envía goals a
+        \texttt{move\_base}.
+  \item Visualización en RViz: heatmap como \texttt{OccupancyGrid}, camino como
+        \texttt{nav\_msgs/Path}, estado de habitaciones como markers.
+  \item Cámara RGBD del HSR como entrada para YOLOE (sustituyendo la cámara
+        simulada de Habitat-Sim).
+\end{itemize}
+
+Esta extensión no forma parte del roadmap inmediato. Su viabilidad depende de
+que la capa de razonamiento funcione correctamente en simulación y de la
+disponibilidad del robot HSR en el laboratorio V4R del TU Wien.
+
+% =============================================================================
+\section{Diario de desarrollo}
+% =============================================================================
+
+\subsection*{31 de marzo de 2026 --- Correcciones del pipeline HSSD}
+
+\begin{enumerate}
+  \item \textbf{Mapa de obstáculos invertido}: modelo de dos bandas (suelo $h<0{,}15$\,m /
+        obstáculo $0{,}2 \leq h < 1{,}5$\,m). Una celda navegable $= 1$ si tiene suelo Y
+        no tiene obstáculo.
+  \item \textbf{Heatmap ruidoso}: argmax binario reemplazado por score CLIP continuo con
+        umbral 0.3 + max-pooling + difusión solo desde celdas con score alto.
+  \item \textbf{Robot atraviesa paredes en HSSD}: \texttt{sim.recompute\_navmesh()} en
+        \texttt{\_setup\_sim()} cuando \texttt{dataset\_type == "hssd"}.
+  \item \textbf{Integración YOLOE}: \texttt{yoloe\_utils.py} + \texttt{\_yoloe\_worker.py},
+        superposición sobre ventana 1st person.
+  \item \textbf{Camino visible}: \texttt{path\_cells} pasado a \texttt{show\_map()},
+        color rojo.
+  \item \textbf{Cámara primera persona}: inclinación $-\pi/8$\,rad ($\approx 22{,}5°$).
+\end{enumerate}
+
+\subsection*{2 de abril de 2026 (primera iteración)}
+
+\begin{enumerate}
+  \item \textbf{Postproceso de heatmaps}: suavizado Gaussiano $\rightarrow$ umbral
+        relativo $\rightarrow$ metadatos por componente (área, max, media, bbox, centroide).
+  \item \textbf{Exploración 360°}: pasos de 20°, detención al detectar.
+  \item \textbf{Ruta alternativa}: componente con mayor score a $>$20 celdas.
+  \item \textbf{Movimiento fluido}: sin \texttt{set\_agent\_state()} visible.
+\end{enumerate}
+
+\subsection*{2 de abril de 2026 (segunda iteración)}
+
+\begin{enumerate}
+  \item \textbf{Worker YOLOE persistente}: modelo cargado una sola vez; protocolo
+        stdin/stdout; inferencias $\sim$100--500\,ms.
+  \item \textbf{YoloeSession}: modos síncrono y asíncrono (hilo bg).
+  \item \textbf{Scan 360° fluido}: pasos nativos de 5°, YOLOE en hilo bg.
+  \item \textbf{Cámara $-30°$}: \texttt{habitat\_utils.py}.
+  \item \textbf{Standoff 0,25\,m}: acercamiento máximo al objeto.
+\end{enumerate}
+
+\subsection*{13 de abril de 2026}
+
+\begin{enumerate}
+  \item \textbf{Bug protocolo stdout/stderr YOLOE}: \texttt{\_ensure\_mobileclip()}
+        imprimía en stdout interceptando el \texttt{"READY"}; corregido a
+        \texttt{sys.stderr}. \texttt{start()} ahora lee hasta recibir \texttt{"READY"}.
+  \item \textbf{mobileclip\_blt.ts}: búsqueda en múltiples rutas candidatas;
+        eliminación automática de versión corrupta (${<}100$\,MB).
+  \item \textbf{Captura stderr del worker}: crashes visibles en consola.
+  \item \textbf{Dirección de cara definitiva}: $\arctan2(-\Delta y, -\Delta x)$,
+        signo consistente con el planificador.
+  \item \textbf{Sin teletransporte}: \texttt{plan\_path\_only()} + camino 800\,ms
+        antes de ejecutar.
+  \item \textbf{Hydra corregido}: \texttt{scene\_dataset\_config\_file} sin prefijo
+        \texttt{+} en ejecución y documentación de \texttt{menu.sh}.
+  \item \textbf{Repositorio GitHub limpio}: \texttt{mobileclip\_blt.ts} (571\,MB)
+        eliminado del historial con \texttt{git-filter-repo}; push operativo.
+  \item \textbf{Bugs corregidos}: IndexError boundary (clamp en
+        \texttt{plan\_path\_only()}) + umbral YOLOE subido a 0,40.
+  \item \textbf{Fórmula de calidad}: implementada en \texttt{postprocess\_heatmap()};
+        componentes ordenados por quality.
+\end{enumerate}
+
+\subsection*{14 de abril de 2026}
+
+\begin{enumerate}
+  \item \textbf{Reestructuración del documento de proyecto}: se redefine la
+        finalidad del proyecto con foco en razonamiento por habitaciones.
+  \item \textbf{HSSD confirmado como dataset principal}: MP3D queda como soporte
+        secundario; LabelMe diferido.
+  \item \textbf{Arquitectura room-aware diseñada}: 8 fases (A--H) con
+        representación de estado por habitación, scoring de selección de room,
+        acciones de alto nivel y rol estratégico del LLM.
+  \item \textbf{Roadmap corregido}: la escalera M1--M5 se reemplaza por la
+        arquitectura room-aware como prioridad central. Baselines y evaluación
+        pasan a fase posterior.
+  \item \textbf{Fase A implementada}: \texttt{SemanticSceneRoomProvider} construido
+        con transformación completa Habitat$\rightarrow$grid (\texttt{hab\_to\_grid}).
+        Polígonos rasterizados en espacio grid. Cada componente del heatmap anotado
+        con su habitación. Navegación a habitación por nombre funcional (centroide
+        directo, sin heatmap ni YOLOE). Verificación visual de llegada a habitación
+        omitida en simulación (coordenadas exactas); se contempla reactivarla para
+        robot real con localización imperfecta.
+  \item \textbf{Parsing semántico por niveles}: identificado como trabajo futuro
+        necesario. El parsing actual separa instrucciones compuestas en targets
+        independientes; se requiere un parser que interprete habitación objetivo +
+        objeto dentro de ella como una sola instrucción estructurada.
+\end{enumerate}
+
+\subsection*{15 de abril de 2026}
+
+\begin{enumerate}
+  \item \textbf{Fase B completada}: \texttt{RoomState} y \texttt{SearchState}
+        implementados en \texttt{vlmaps/utils/search\_state.py}. Cada
+        \texttt{RoomState} registra \texttt{explored\_ratio}, \texttt{objects\_seen},
+        \texttt{candidates\_tried/confirmed}, \texttt{times\_visited},
+        \texttt{target\_relevance} y \texttt{target\_found\_here}. Se construye una
+        instancia por target al inicio de cada instrucción y se actualiza
+        incrementalmente durante la navegación y la verificación YOLOE. Al final de
+        cada instrucción se imprime un resumen completo del estado de búsqueda.
+
+  \item \textbf{Fase C completada}: módulo \texttt{vlmaps/utils/room\_priors.py}.
+        Implementa \texttt{compute\_room\_priors(query, known\_rooms,
+        objects\_seen\_by\_room)} fusionando tres fuentes con pesos
+        $a=0{,}5$, $b=0{,}3$, $c=0{,}2$: (a) LLM GPT-4o-mini con llamada
+        estructurada al inicio de cada búsqueda de objeto; (b) tabla manual de
+        $\sim$35 objetos con scores por tipo de habitación; (c) evidencia de
+        co-ocurrencia basada en \texttt{objects\_seen} por habitación. El resultado
+        normalizado se almacena en \texttt{RoomState.target\_relevance} y se
+        muestra como traza de depuración antes de cada consulta.
+
+  \item \textbf{Navegación solo a candidatos del heatmap}: eliminado el uso de
+        \texttt{get\_standoff\_pos()} (que usaba \texttt{labeled\_map\_cropped}).
+        Ahora el robot navega directamente al centroide del mejor componente de
+        \texttt{kept\_components} (filtrado real por argmax + score $>$ 0{,}3).
+        Esto evita que el robot viaje a zonas con señal VLMap pero sin activación
+        real en el heatmap.
+
+  \item \textbf{Filtrado de objetos navegables}: la lista de objetos mostrada antes
+        de cada consulta usa el mismo filtro que \texttt{compute\_heatmap} (vóxeles
+        con argmax ganador y score $> 0{,}3$, mínimo 10 vóxeles), garantizando
+        coherencia entre lo que se muestra y lo que el sistema puede encontrar.
+
+  \item \textbf{Correcciones de navegación}: (a) \texttt{n\_actions == 0} tratado
+        como ``ya en el destino'' en vez de ``sin camino'', corrigiendo el caso
+        post-llegada a habitación; (b) eliminado el bloque de reintento por paso
+        estrecho (\textit{narrow-passage retry}) que generaba más falsos positivos
+        que beneficios; (c) umbral YOLOE subido a $0{,}3$ y dilatación de obstáculos
+        a 3 iteraciones ($\approx$15\,cm por lado).
+
+  \item \textbf{Tipos canónicos de habitación (\textit{room\_type} vs
+        \textit{room\_instance})}: HSSD codifica instancias repetidas de un mismo
+        tipo de habitación con sufijos numéricos (\texttt{bathroom.001},
+        \texttt{bathroom.002}, etc.). Se añade \texttt{canonical\_room\_type()} en
+        \texttt{room\_priors.py} que elimina el sufijo \texttt{.NNN} mediante regex
+        (\texttt{re.sub(r'\textbackslash.\textbackslash d+\$', '', s)}), y
+        \texttt{compatible\_room\_types()} que devuelve el conjunto de tipos
+        canónicos con prior $>0{,}05$. Estas funciones permiten razonar sobre
+        familias de habitación independientemente del índice de instancia.
+
+  \item \textbf{Comportamiento \textit{local-first} al navegar (\textit{room gate})}:
+        nueva función \texttt{select\_best\_candidate(kept\_components, current\_room,
+        query\_priors, tried\_centroids)} en \texttt{interactive\_object\_nav.py}. Si
+        el robot ya se encuentra dentro de una instancia de habitación cuyo tipo
+        canónico es compatible con el objeto buscado (e.g.\ robot en
+        \texttt{bathroom.001}, objeto \texttt{sink}), el sistema prioriza los
+        candidatos del heatmap situados en esa misma instancia, aplicando un bonus de
+        $+0{,}35$ a su calidad efectiva. El cambio de habitación sólo se produce si
+        (a) no quedan candidatos locales sin explorar, o (b) la calidad externa supera
+        la local en más de un $40\,\%$ tras el bonus. El conjunto
+        \texttt{\_tried\_centroids} en \texttt{SearchState} registra los centroides ya
+        visitados para evitar ciclos.
+
+  \item \textbf{Navegación con margen de seguridad aumentado}: la dilatación de
+        obstáculos en \texttt{habitat\_lang\_robot.py} se eleva a 5 iteraciones
+        ($\approx$25\,cm por lado). La función
+        \texttt{select\_safe\_goal\_from\_path()} aumenta el radio mínimo de
+        \textit{clearance} de 3 a 5 celdas y adopta estrategia de máxima holgura:
+        reúne \emph{todos} los puntos del camino que cumplen el radio y selecciona el
+        de mayor distancia al obstáculo más cercano (en vez del primero válido caminando
+        hacia atrás). Si la pasada estricta no devuelve candidatos, una segunda pasada
+        suaviza el umbral y vuelve a seleccionar por máxima holgura.
+
+  \item \textbf{Métricas de seguridad por camino}: nueva función
+        \texttt{\_compute\_path\_safety(path\_cells, obs\_map)} basada en
+        \texttt{distance\_transform\_edt}. Registra longitud, holgura mínima y media,
+        penalización acumulada por celdas con $\text{clearance} < 8$ y coste seguro
+        $= \text{longitud} + 0{,}5 \cdot \text{penalización}$. Los valores se imprimen
+        en trazas \texttt{[safety]} tras cada planificación, facilitando el diagnóstico
+        de rutas peligrosas y la futura migración a ROS/HSR.
+\end{enumerate}
+
+\end{document}
