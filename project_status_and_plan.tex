@@ -988,7 +988,7 @@ disponibilidad del robot HSR en el laboratorio V4R del TU Wien.
         candidatos del heatmap situados en esa misma instancia, aplicando un bonus de
         $+0{,}35$ a su calidad efectiva. El cambio de habitación sólo se produce si
         (a) no quedan candidatos locales sin explorar, o (b) la calidad externa supera
-        la local en más de un $40\,\%$ tras el bonus. El conjunto
+        la local en más de un 40\% tras el bonus. El conjunto
         \texttt{\_tried\_centroids} en \texttt{SearchState} registra los centroides ya
         visitados para evitar ciclos.
 
@@ -1188,6 +1188,24 @@ disponibilidad del robot HSR en el laboratorio V4R del TU Wien.
         encuentra a menos de 20~celdas del candidato. Se registra en consola
         «\textit{Object visible but room not yet entered → tentative only}» o
         «\textit{Room entry confirmed}» según el caso.
+
+  \item \textbf{Centrado de trayectorias en puertas mediante eje medial local}:
+        el visgraph seguía generando caminos geométricamente válidos pero
+        sesgados hacia una de las jambas de la puerta, lo que hacía que el
+        escudo de ejecución bloquease pasos por clearance lateral insuficiente
+        aun estando en \textit{doorway mode}. Se añade un postprocesado
+        \texttt{center\_path\_on\_medial\_axis()} en
+        \texttt{vlmaps/utils/navigation\_utils.py}. Tras obtener la ruta del
+        visgraph, cada waypoint intermedio cuyo clearance sobre el mapa crudo
+        sea $<4{,}0$ celdas se desplaza hacia la celda de mayor holgura dentro
+        de un disco local de radio 6, usando \texttt{distance\_transform\_edt}
+        del mapa \emph{sin} dilatar. El candidato solo se acepta si mantiene
+        línea de visión libre con los waypoints anterior y siguiente sobre el
+        mapa de planificación dilatado, evitando atajos que corten esquinas o
+        crucen paredes. Después se aplica un suavizado conservador de 3 puntos
+        y se conserva la meta final sin desplazar. El resultado es que la ruta
+        entra por el centro del vano y el escudo vuelve a comportarse como
+        mecanismo de seguridad, no como corrector sistemático de trayectorias.
 
 \end{enumerate}
 
