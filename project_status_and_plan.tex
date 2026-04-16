@@ -1274,6 +1274,20 @@ disponibilidad del robot HSR en el laboratorio V4R del TU Wien.
         ``Not reached'' en navegación a habitaciones o ``Stopped before goal''
         en aproximaciones a objetos.
 
+  \item \textbf{El follower vuelve a seguir la polilínea geométrica, no el
+        raster denso}: el primer rediseño había reutilizado la trayectoria
+        densificada a nivel de celda también como referencia de control. Eso
+        resultó ser un error: la polilínea rasterizada introduce un patrón de
+        ``escalera'' y el controlador discreto intentaba corregir rumbo en cada
+        pequeño cambio de celda, disparando el número de acciones incluso
+        cuando la ruta geométrica original ya era buena. Se separan ahora ambas
+        representaciones: el follower usa como guía la polilínea de waypoints
+        del planificador visgraph postprocesado, mientras que la versión densa
+        se conserva solo para métricas, validación, escudo local y
+        visualización. Además, el presupuesto máximo de ejecución pasa a
+        escalar con la longitud geométrica real del camino y no con el preview
+        antiguo de cientos de acciones discretas.
+
 \end{enumerate}
 
 \end{document}
