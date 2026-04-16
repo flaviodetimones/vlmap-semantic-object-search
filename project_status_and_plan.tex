@@ -1288,6 +1288,20 @@ disponibilidad del robot HSR en el laboratorio V4R del TU Wien.
         escalar con la longitud geométrica real del camino y no con el preview
         antiguo de cientos de acciones discretas.
 
+  \item \textbf{Banda muerta angular para eliminar micro-correcciones de 5°}:
+        incluso después de volver a seguir la polilínea geométrica, el
+        controlador discreto seguía tendiendo a consumir pequeños giros antes
+        de casi cada avance cuando el error angular hacia el siguiente objetivo
+        era muy bajo. Eso no cambiaba de forma significativa la seguridad, pero
+        sí alargaba innecesariamente la ejecución en pasos estrechos. Se añade
+        una tolerancia angular en el follower: si el objetivo inmediato ya está
+        alineado dentro de un margen moderado, se prioriza
+        \texttt{move\_forward} en lugar de corregir rumbo con otro giro
+        discreto. La tolerancia es más amplia en zonas estrechas que en espacio
+        abierto. El escudo local sigue validando cada avance, de modo que se
+        reduce el número de pasos sin relajar la protección frente a
+        colisiones.
+
 \end{enumerate}
 
 \end{document}
