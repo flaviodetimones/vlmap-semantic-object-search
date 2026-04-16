@@ -1248,6 +1248,32 @@ disponibilidad del robot HSR en el laboratorio V4R del TU Wien.
         planificación, validación y ejecución comparten por fin la misma
         representación geométrica del camino.
 
+  \item \textbf{\textit{Lookahead} recortado por visibilidad local del camino}:
+        el primer seguidor con \textit{lookahead} seguía teniendo un fallo
+        importante en pasillos con giro o marcos oblicuos: podía elegir como
+        objetivo un punto varios pasos por delante que ya estaba al otro lado
+        de una esquina no visible desde la pose actual. Como el controlador
+        discreto solo orienta hacia ese objetivo y aplica la primera acción,
+        el robot intentaba cortar la esquina y acababa proponiendo un avance
+        con \texttt{front clearance = 0.0}. Se corrige haciendo que el
+        \textit{path follower} no use directamente el \textit{lookahead}
+        preferido, sino el punto más lejano de la polilínea densa que siga
+        siendo alcanzable con línea de visión libre sobre el mapa de
+        planificación dilatado. Así, dentro de cuellos de botella y giros
+        cerrados, el seguidor deja de apuntar ``a través de la pared'' y se
+        mantiene sobre el tramo realmente visible del camino.
+
+  \item \textbf{Etiquetas de llegada coherentes con el resultado real de la
+        navegación}: en comandos de habitación se estaba mostrando
+        ``\textit{Arrived: ...}'' inmediatamente después de que terminara la
+        ejecución del follower, incluso si el robot se había detenido antes del
+        umbral y la comprobación final de habitación fallaba. Esto inducía a
+        error durante la depuración visual. Se corrige la interfaz para que el
+        overlay solo muestre ``Arrived'' cuando el robot ha alcanzado de verdad
+        la habitación objetivo; en caso contrario, ahora se muestra
+        ``Not reached'' en navegación a habitaciones o ``Stopped before goal''
+        en aproximaciones a objetos.
+
 \end{enumerate}
 
 \end{document}
