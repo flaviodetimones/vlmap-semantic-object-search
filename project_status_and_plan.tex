@@ -1189,23 +1189,64 @@ disponibilidad del robot HSR en el laboratorio V4R del TU Wien.
         «\textit{Object visible but room not yet entered → tentative only}» o
         «\textit{Room entry confirmed}» según el caso.
 
-  \item \textbf{Centrado de trayectorias en puertas mediante eje medial local}:
+  \item \textbf{Centrado de trayectorias en pasos estrechos mediante eje medial local}:
         el visgraph seguía generando caminos geométricamente válidos pero
-        sesgados hacia una de las jambas de la puerta, lo que hacía que el
+        sesgados hacia uno de los lados del estrechamiento, lo que hacía que el
         escudo de ejecución bloquease pasos por clearance lateral insuficiente
-        aun estando en \textit{doorway mode}. Se añade un postprocesado
+        aun estando en modo de paso estrecho. El primer intento de corrección
+        solo recentraba vértices ya existentes y no bastaba cuando el
+        estrechamiento caía en mitad de un segmento largo del visgraph. Se
+        añade un postprocesado
         \texttt{center\_path\_on\_medial\_axis()} en
         \texttt{vlmaps/utils/navigation\_utils.py}. Tras obtener la ruta del
-        visgraph, cada waypoint intermedio cuyo clearance sobre el mapa crudo
-        sea $<4{,}0$ celdas se desplaza hacia la celda de mayor holgura dentro
-        de un disco local de radio 6, usando \texttt{distance\_transform\_edt}
-        del mapa \emph{sin} dilatar. El candidato solo se acepta si mantiene
-        línea de visión libre con los waypoints anterior y siguiente sobre el
+        visgraph, se rasteriza cada segmento y, si detecta una franja con
+        clearance $<4{,}0$ celdas, inserta un waypoint auxiliar en la zona más
+        estrecha. Ese waypoint, junto con los intermedios originales, se
+        desplaza hacia la celda de mayor holgura dentro de un disco local de
+        radio 6, usando \texttt{distance\_transform\_edt} del mapa
+        \emph{sin} dilatar. El candidato solo se acepta si mantiene línea de
+        visión libre con los waypoints vecino anterior y siguiente sobre el
         mapa de planificación dilatado, evitando atajos que corten esquinas o
         crucen paredes. Después se aplica un suavizado conservador de 3 puntos
         y se conserva la meta final sin desplazar. El resultado es que la ruta
-        entra por el centro del vano y el escudo vuelve a comportarse como
-        mecanismo de seguridad, no como corrector sistemático de trayectorias.
+        cruza por el centro del paso incluso cuando el cuello de botella no
+        coincide con un vértice del visgraph, y el escudo vuelve a comportarse
+        como mecanismo de seguridad, no como corrector sistemático de
+        trayectorias.
+
+  \item \textbf{Modo de paso estrecho activado por geometría local, no solo por
+        simetría lateral}: en ejecución real aparecía un caso límite al entrar
+        oblicuamente en un marco o cuello de botella: un lateral del footprint
+        caía por debajo de 1{,}5 celdas mientras el otro seguía aún en espacio
+        relativamente abierto, de modo que el detector antiguo no activaba el
+        modo de paso estrecho y el escudo bloqueaba el avance con la regla de
+        espacio abierto. Se refuerza la detección en
+        \texttt{execute\_nav\_replay()} con tres señales:
+        (1) estrechamiento en la pose actual, (2) estrechamiento en la huella
+        de la pose siguiente y (3) entrada asimétrica, cuando un lateral ya es
+        crítico pero la clearance frontal sigue siendo cruzable. Además se
+        añade histéresis de salida para mantener el modo activo mientras el
+        robot permanezca dentro del cuello de botella. El modo pasa a modelar
+        \emph{pasos estrechos cruzables} en general, no solo puertas
+        perfectamente simétricas entre habitaciones.
+
+  \item \textbf{Sustitución del \textit{waypoint chasing} por un seguidor de
+        polilínea con \textit{lookahead}}: el aumento de waypoints auxiliares
+        para centrar la trayectoria en pasos estrechos mejoraba la geometría,
+        pero degradaba la ejecución con cientos de micro-correcciones de rumbo,
+        porque el controlador discreto original perseguía cada subgoal por
+        separado con cuantización fija de 5° y 0{,}1\,m. Se densifica ahora la
+        ruta planificada a nivel de celda mediante rasterización de segmentos y
+        se ejecuta con un \textit{path follower} sobre esa polilínea densa. En
+        cada iteración, el robot proyecta su pose sobre la ruta, selecciona un
+        objetivo adelantado (\textit{lookahead}) varios pasos por delante y
+        solo aplica la primera acción discreta necesaria para aproximarse a ese
+        punto. El \textit{lookahead} se reduce automáticamente dentro de pasos
+        estrechos y se mantiene más largo en espacio abierto. Además, las
+        métricas de seguridad y la selección de metas de observación pasan a
+        evaluarse sobre la misma polilínea densificada, de modo que
+        planificación, validación y ejecución comparten por fin la misma
+        representación geométrica del camino.
 
 \end{enumerate}
 
