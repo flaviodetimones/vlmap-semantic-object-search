@@ -1128,4 +1128,67 @@ disponibilidad del robot HSR en el laboratorio V4R del TU Wien.
         actual sin ruta nueva.
 \end{enumerate}
 
+% =============================================================================
+\subsection*{16 de abril de 2026}
+% =============================================================================
+
+\begin{enumerate}
+
+  \item \textbf{Separación explícita entre inflación de planificación y escudo
+        de ejecución}: el planificador global utiliza el mapa dilatado
+        (\texttt{\_safe\_obs\_map}, 3~iteraciones de dilatación binaria,
+        $\approx$15\,cm por lado) para trazar rutas con suficiente margen.
+        El escudo de ejecución opera exclusivamente sobre la transformada de
+        distancias del mapa crudo (\texttt{robot.map.obstacles\_map}), sin
+        dilatar. Esto garantiza que los pasillos estrechos de HSSD
+        ($\sim$10~celdas de ancho, clearance real~$\approx$5~celdas) no sean
+        bloqueados falsamente por el escudo. La constante
+        \texttt{\_PLAN\_DILATION\_ITERS = 3} se declara de forma explícita en
+        \texttt{habitat\_lang\_robot.py} y se imprime al inicio de la sesión
+        junto con el mensaje: «\textit{global planner only; execution shield
+        uses raw map}».
+
+  \item \textbf{Modo de travesía de puertas (\textit{doorway mode})}: antes de
+        cada \texttt{move\_forward}, el escudo mide las clearances
+        perpendiculares a la derecha y a la izquierda del robot en la pose
+        actual (\texttt{\_side\_l}, \texttt{\_side\_r}). Si ambas caen por
+        debajo de \texttt{DOORWAY\_SIDE\_TH}~$= 5{,}0$~celdas y la clearance
+        frontal supera \texttt{DOORWAY\_FRONT\_MIN}~$= 0{,}5$~celdas, se
+        activa el modo de paso estrecho. En ese modo el umbral de parada dura
+        se relaja a \texttt{STOP\_CL\_DOOR}~$= 0{,}5$~celdas (frente a
+        1{,}0 en espacio abierto) y cada paso se registra como
+        «\textit{cautious doorway traversal}». La transición
+        ON/OFF se imprime explícitamente. El planificador puede enrutar
+        libremente por puertas válidas; el escudo deja cruzarlas sin falsas
+        paradas.
+
+  \item \textbf{Escudo sensible a la huella completa del robot}: el chequeo
+        anterior solo evaluaba un punto (celda frontal prevista). Ahora se
+        evalúan tres puntos de la huella en la pose predicha:
+        \textit{front-center}, \textit{front-left} y \textit{front-right}
+        (desplazados lateralmente \texttt{ROBOT\_HW}~$= 2$~celdas respecto
+        al eje de avance). Se registra por separado
+        \texttt{front clearance}, \texttt{left clearance},
+        \texttt{right clearance} y \texttt{footprint min clearance}. En
+        espacio abierto, si algún lateral cae por debajo de
+        \texttt{SIDE\_STOP\_CL}~$= 1{,}5$~celdas, el paso se bloquea. En
+        modo puerta, el criterio de bloqueo es solo el mínimo de la huella
+        frente a \texttt{DOORWAY\_FRONT\_MIN}.
+
+  \item \textbf{Puerta de entrada a habitación para confirmación YOLOE (\textit{room-entry gate})}: hasta ahora el sistema podía declarar éxito
+        inmediatamente si YOLOE detectaba el objeto desde la puerta antes de
+        haber cruzado el umbral. Se añade una comprobación en los stages 0
+        y~1 de YOLOE: si el robot está en una habitación distinta de la que
+        contiene el componente del heatmap objetivo
+        (\texttt{best\_comp["room"]}) y la distancia al centroide del
+        candidato supera 20~celdas ($\approx$1\,m), la detección se marca
+        como \textit{tentativa} (\texttt{\_yoloe\_confirmed = False}) y la
+        búsqueda continúa con el stage siguiente. Solo se acepta como éxito
+        definitivo si el robot ha entrado en la habitación correcta o se
+        encuentra a menos de 20~celdas del candidato. Se registra en consola
+        «\textit{Object visible but room not yet entered → tentative only}» o
+        «\textit{Room entry confirmed}» según el caso.
+
+\end{enumerate}
+
 \end{document}
