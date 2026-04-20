@@ -4,30 +4,30 @@ export OPENAI_KEY="${OPENAI_KEY:-$OPENAI_API_KEY}"
 APP=/workspace/third_party/vlmaps/application
 DATASET=/workspace/third_party/vlmaps/dataset
 
-while true; do
-    echo ""
-    echo "┌─────────────────────────────────────────────────────┐"
-    echo "│                 Available commands                  │"
-    echo "├─────────────────────────────────────────────────────┤"
-    echo "│  1) Check GPU / CUDA                                │"
-    echo "│  2) Show workspace structure                        │"
-    echo "│  3) VLMaps pipeline                                 │"
-    echo "│  4) Start Jupyter Notebook (port 8888)              │"
-    echo "│  5) Install / update Python dependencies            │"
-    echo "│  6) Open interactive Python shell (conda tfg)       │"
-    echo "│  q) Quit                                            │"
-    echo "└─────────────────────────────────────────────────────┘"
-    echo -n "  Select an option: "
-    read -r opcion
+run_other_menu() {
+    while true; do
+        echo ""
+        echo "  ┌─────────────────────────────────────────────────────┐"
+        echo "  │                    Other tools                      │"
+        echo "  ├─────────────────────────────────────────────────────┤"
+        echo "  │  1) Check GPU / CUDA                                │"
+        echo "  │  2) Show workspace structure                        │"
+        echo "  │  3) Start Jupyter Notebook (port 8888)              │"
+        echo "  │  4) Install / update Python dependencies            │"
+        echo "  │  5) Open interactive Python shell (conda tfg)       │"
+        echo "  │  b) Back                                            │"
+        echo "  └─────────────────────────────────────────────────────┘"
+        echo -n "  Select an option: "
+        read -r other_opt
 
-    case "$opcion" in
-        1)
-            echo ""
-            echo "► GPU / CUDA status:"
-            echo "─────────────────────────────────────────"
-            nvidia-smi 2>/dev/null || echo "  nvidia-smi not available"
-            echo ""
-            python -c "
+        case "$other_opt" in
+            1)
+                echo ""
+                echo "► GPU / CUDA status:"
+                echo "─────────────────────────────────────────"
+                nvidia-smi 2>/dev/null || echo "  nvidia-smi not available"
+                echo ""
+                python -c "
 import torch
 print(f'  PyTorch   : {torch.__version__}')
 print(f'  CUDA avail: {torch.cuda.is_available()}')
@@ -35,16 +35,74 @@ if torch.cuda.is_available():
     print(f'  GPU       : {torch.cuda.get_device_name(0)}')
     print(f'  VRAM total: {torch.cuda.get_device_properties(0).total_memory / 1e9:.1f} GB')
 "
-            ;;
+                ;;
+            2)
+                echo ""
+                echo "► Workspace structure:"
+                echo "─────────────────────────────────────────"
+                find /workspace -maxdepth 2 -not -path '*/\.*' \
+                    -not -path '*/data/*' -not -path '*/results/*' \
+                    | sort | sed 's|/workspace/||; s|^|  |'
+                ;;
+            3)
+                echo ""
+                echo "► Launching Jupyter Notebook at http://localhost:8888 ..."
+                jupyter notebook --ip=0.0.0.0 --port=8888 --no-browser --allow-root \
+                    --NotebookApp.token='' --NotebookApp.password=''
+                ;;
+            4)
+                echo ""
+                echo "► Installing/updating dependencies from requirements.txt..."
+                if [ -f /workspace/docker/requirements.txt ]; then
+                    pip install -r /workspace/docker/requirements.txt
+                    LABELME_FILE=/opt/conda/envs/tfg/lib/python3.9/site-packages/labelme/_label_file.py
+                    if [ -f "$LABELME_FILE" ]; then
+                        sed -i 's/NDArray\[np\.bool\]/NDArray[np.bool_]/g' "$LABELME_FILE"
+                        echo "  labelme np.bool patch applied."
+                    fi
+                else
+                    echo "  /workspace/docker/requirements.txt not found."
+                fi
+                ;;
+            5)
+                echo ""
+                echo "► Opening interactive Python (conda env: tfg)..."
+                python
+                ;;
+            b|B)
+                break
+                ;;
+            *)
+                echo "  Invalid option."
+                ;;
+        esac
+    done
+}
+
+while true; do
+    echo ""
+    echo "┌─────────────────────────────────────────────────────┐"
+    echo "│                 Available commands                  │"
+    echo "├─────────────────────────────────────────────────────┤"
+    echo "│  1) VLMaps pipeline                  [default]      │"
+    echo "│  2) Other tools (GPU, Jupyter, deps, shell, ...)    │"
+    echo "│  q) Quit                                            │"
+    echo "└─────────────────────────────────────────────────────┘"
+    echo -n "  Select an option (default 1): "
+    read -r opcion
+    opcion=${opcion:-1}
+
+    case "$opcion" in
         2)
-            echo ""
-            echo "► Workspace structure:"
-            echo "─────────────────────────────────────────"
-            find /workspace -maxdepth 2 -not -path '*/\.*' \
-                -not -path '*/data/*' -not -path '*/results/*' \
-                | sort | sed 's|/workspace/||; s|^|  |'
+            run_other_menu
             ;;
-        3)
+        q|Q)
+            echo ""
+            echo "  Bye!"
+            echo ""
+            break
+            ;;
+        1)
             # ── Dataset selection ─────────────────────────────────────────
             echo ""
             echo "  ┌─────────────────────────────────────────────────┐"
@@ -53,23 +111,23 @@ if torch.cuda.is_available():
             echo "  │  1) MP3D  (Matterport3D — escenas reales)       │"
             echo "  │  2) HSSD  (Habitat Static Scene Dataset)        │"
             echo "  └─────────────────────────────────────────────────┘"
-            echo -n "  Dataset (1/2, default 1): "
+            echo -n "  Dataset (1/2, default 2): "
             read -r ds_choice
-            ds_choice=${ds_choice:-1}
+            ds_choice=${ds_choice:-2}
 
-            if [ "$ds_choice" = "2" ]; then
+            if [ "$ds_choice" = "1" ]; then
+                DATASET_TYPE="mp3d"
+                DATA_PATHS="docker"
+                SCENES_DIR=/workspace/data/vlmaps_dataset
+                NAV_EXTRA=""
+                DS_LABEL="MP3D"
+            else
                 DATASET_TYPE="hssd"
                 DATA_PATHS="hssd"
                 SCENES_DIR=/workspace/data/vlmaps_dataset_hssd
                 HSSD_CFG=/workspace/data/versioned_data/hssd-hab/hssd-hab.scene_dataset_config.json
                 NAV_EXTRA="dataset_type=hssd scene_dataset_config_file=$HSSD_CFG"
                 DS_LABEL="HSSD"
-            else
-                DATASET_TYPE="mp3d"
-                DATA_PATHS="docker"
-                SCENES_DIR=/workspace/data/vlmaps_dataset
-                NAV_EXTRA=""
-                DS_LABEL="MP3D"
             fi
 
             while true; do
@@ -82,15 +140,17 @@ if torch.cuda.is_available():
                 echo "  │  c) Collect dataset                             │"
                 echo "  │  m) Create VLMap          (scene_id required)   │"
                 echo "  │  i) Index map             (scene_id required)   │"
-                echo "  │  l) Interactive LLM navigation                  │"
+                echo "  │  l) Interactive LLM navigation       [default]  │"
+                echo "  │  t) Test — batch nav (auto queries)             │"
                 echo "  │  g) Generate obstacle map image                 │"
                 if [ "$DATASET_TYPE" = "mp3d" ]; then
                 echo "  │  n) Label rooms (LabelMe → room_map)            │"
                 fi
                 echo "  │  b) Back                                        │"
                 echo "  └─────────────────────────────────────────────────┘"
-                echo -n "  Select: "
+                echo -n "  Select (default l): "
                 read -r sub
+                sub=${sub:-l}
 
                 case "$sub" in
                     r|R)
@@ -291,6 +351,58 @@ if torch.cuda.is_available():
                         python "$APP/interactive_object_nav.py" \
                             data_paths="$DATA_PATHS" scene_id="$scene" $NAV_EXTRA
                         ;;
+                    t|T)
+                        echo ""
+                        if [ "$DATASET_TYPE" != "hssd" ]; then
+                            echo "  Batch test (auto queries) is currently HSSD-only."
+                            echo "  Switch to HSSD from the dataset menu."
+                        elif [ -z "$OPENAI_API_KEY" ]; then
+                            echo "  WARNING: OPENAI_API_KEY is not set. Set it before running tests."
+                        else
+                            echo "  Available scenes [$DS_LABEL]:"
+                            echo "  ─────────────────────────────────────────────────"
+                            if [ -d "$SCENES_DIR" ]; then
+                                i=0
+                                while IFS= read -r dir; do
+                                    echo "    scene_id=$i  →  $(basename "$dir")"
+                                    i=$((i+1))
+                                done < <(find "$SCENES_DIR" -mindepth 1 -maxdepth 1 -type d | sort)
+                            fi
+                            echo ""
+                            echo -n "  scene_id (default 1): "
+                            read -r scene
+                            scene=${scene:-1}
+                            echo -n "  Min navigable fraction per room (default 0.25): "
+                            read -r min_nav
+                            min_nav=${min_nav:-0.25}
+
+                            STAMP=$(date +%Y%m%d_%H%M%S)
+                            OUT_DIR="/workspace/results/nav_batch_${STAMP}"
+                            mkdir -p "$OUT_DIR"
+                            QUERY_FILE="$OUT_DIR/queries.txt"
+                            LOG_FILE="$OUT_DIR/interactive_nav.log"
+
+                            echo ""
+                            echo "► Generating queries → $QUERY_FILE"
+                            cd /workspace
+                            python tools/nav_batch_queries.py \
+                                --scene-id "$scene" \
+                                --min-room-navigable "$min_nav" > "$QUERY_FILE"
+                            printf 'quit\n' >> "$QUERY_FILE"
+
+                            echo "► Running interactive_object_nav with batched queries..."
+                            echo "  Log: $LOG_FILE"
+                            echo ""
+                            cd /workspace/third_party/vlmaps
+                            python "$APP/interactive_object_nav.py" \
+                                data_paths="$DATA_PATHS" scene_id="$scene" $NAV_EXTRA \
+                                < "$QUERY_FILE" | tee "$LOG_FILE"
+
+                            echo ""
+                            echo "  Queries: $QUERY_FILE"
+                            echo "  Log:     $LOG_FILE"
+                        fi
+                        ;;
                     g|G)
                         echo ""
                         echo "  Available scenes [$DS_LABEL]:"
@@ -397,40 +509,8 @@ if torch.cuda.is_available():
                 esac
             done
             ;;
-        4)
-            echo ""
-            echo "► Launching Jupyter Notebook at http://localhost:8888 ..."
-            jupyter notebook --ip=0.0.0.0 --port=8888 --no-browser --allow-root \
-                --NotebookApp.token='' --NotebookApp.password=''
-            ;;
-        5)
-            echo ""
-            echo "► Installing/updating dependencies from requirements.txt..."
-            if [ -f /workspace/docker/requirements.txt ]; then
-                pip install -r /workspace/docker/requirements.txt
-                # Patch labelme 5.10.1: np.bool removed in NumPy >=1.24
-                LABELME_FILE=/opt/conda/envs/tfg/lib/python3.9/site-packages/labelme/_label_file.py
-                if [ -f "$LABELME_FILE" ]; then
-                    sed -i 's/NDArray\[np\.bool\]/NDArray[np.bool_]/g' "$LABELME_FILE"
-                    echo "  labelme np.bool patch applied."
-                fi
-            else
-                echo "  /workspace/docker/requirements.txt not found."
-            fi
-            ;;
-        6)
-            echo ""
-            echo "► Opening interactive Python (conda env: tfg)..."
-            python
-            ;;
-        q|Q)
-            echo ""
-            echo "  Bye!"
-            echo ""
-            break
-            ;;
         *)
-            echo "  Invalid option. Choose 1-6 or 'q'."
+            echo "  Invalid option. Choose 1, 2 or 'q'."
             ;;
     esac
 done

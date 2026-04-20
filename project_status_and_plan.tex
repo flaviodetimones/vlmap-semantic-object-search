@@ -401,8 +401,8 @@ Fase B: \texttt{RoomState} + \texttt{SearchState} & \textcolor{done}{Completado}
 Fase C: priors objeto $\rightarrow$ habitación & \textcolor{done}{Completado} \\
 \midrule
 Fase D: selector de habitación & \textcolor{done}{Completado} \\
-Fase E: candidatos intra-habitación & \textcolor{pendingcol}{Pendiente} \\
-Fase F: acciones de alto nivel & \textcolor{pendingcol}{Pendiente} \\
+Fase E: candidatos intra-habitación & \textcolor{done}{Completado} \\
+Fase F: acciones de alto nivel & \textcolor{done}{Completado} \\
 Fase G: LLM estratégico con estado & \textcolor{pendingcol}{Pendiente} \\
 Fase H: métricas room-aware & \textcolor{pendingcol}{Pendiente} \\
 \midrule
@@ -417,16 +417,19 @@ Extensión ROS\,1 + Toyota HSR & \textcolor{partialcol}{Futura} \\
 \subsection{Resumen honesto del estado}
 
 El sistema dispone ya de los tres pilares semánticos (habitación, mueble,
-objeto) y de toda la infraestructura para usarlos. La primera decisión
-jerárquica real ya existe: el selector de habitación (Fase~D) decide ahora
-qué habitación merece inspección antes de elegir el candidato concreto.
+objeto) y de toda la infraestructura para usarlos. Las tres decisiones
+jerárquicas básicas están integradas: el selector de habitación (Fase~D)
+decide qué habitación merece inspección, la selección intra-habitación
+(Fase~E) restringe los candidatos al subconjunto relevante, y la capa de
+acciones de alto nivel (Fase~F) expone esas operaciones como un vocabulario
+discreto (\texttt{go\_to\_room}, \texttt{explore\_room},
+\texttt{inspect\_candidate}, \texttt{verify\_target}, \texttt{done}) con
+serialización JSON, listo para ser producido por un LLM estratégico.
 
-Lo que falta es cerrar el resto de la política room-aware: restringir de forma
-más explícita la búsqueda al subconjunto intra-habitación (Fase~E),
-formalizarla como acciones de alto nivel (Fase~F), permitir razonamiento
-estratégico con estado estructurado (Fase~G) y medirla con métricas propias
-(Fase~H). Ese bloque restante es el que convertirá el sistema actual en un
-buscador jerárquico completo y defendible experimentalmente.
+Lo que falta es cerrar la cabeza de la política room-aware: conectar un LLM
+estratégico que emita esas acciones a partir del estado estructurado
+(Fase~G) y construir la batería de métricas que demuestre cuantitativamente
+la mejora frente a la línea base M2 (Fase~H).
 
 % =============================================================================
 \section{Arquitectura funcional actual}
@@ -752,7 +755,38 @@ cubran las celdas navegables no visitadas. Esta capa convierte la política
 room-aware en una secuencia de decisiones discretas que un LLM (Fase~G) puede
 leer y producir de forma natural.
 
-\textbf{Esfuerzo estimado}: 1--2 sesiones.
+\textbf{Estado.} \textcolor{done}{Implementado} en el módulo
+\texttt{vlmaps/policy/} (commit del 20.04). Contiene:
+
+\begin{itemize}
+  \item \texttt{policy/actions.py}: \texttt{ActionType} (enum de cinco
+        valores), \texttt{Action} (dataclass inmutable validada en
+        \texttt{\_\_post\_init\_\_}) y dos helpers
+        \texttt{action\_to\_json}\,/\,\texttt{parse\_action\_json} para el
+        intercambio con el LLM (Fase~G). Se publica también
+        \texttt{ACTION\_SCHEMA\_PROMPT}, fragmento listo para incrustar en el
+        \textit{system prompt}.
+  \item \texttt{policy/frontier.py}: \texttt{find\_frontier\_in\_room()}
+        elige una celda navegable dentro de una habitación, alejada de las
+        celdas ya visitadas (parámetros \texttt{visited\_radius\_cells} y
+        \texttt{min\_clearance\_cells}). Resuelve el componente nuevo de
+        \texttt{explore\_room}.
+  \item Ampliación aditiva de \texttt{SearchState}:
+        \texttt{action\_log}, \texttt{visited\_cells} y los métodos
+        \texttt{record\_action}, \texttt{record\_visited\_cell},
+        \texttt{recent\_actions} (sin tocar la lógica existente, conforme al
+        criterio \textit{add-only} del repositorio).
+  \item Suite de tests \texttt{tests/test\_phase\_f\_actions.py} (15
+        casos): validación de cada \texttt{ActionType}, \textit{round-trip}
+        JSON, log de acciones, y \textit{frontier picking} con/sin trail
+        previa. Toda la batería pasa sin Habitat ni dependencias pesadas.
+\end{itemize}
+
+La capa es \emph{additiva}: el bucle interactivo actual sigue funcionando
+sin cambios, y la Fase~G podrá enchufar el ejecutor que despache cada
+\texttt{Action} sobre las funciones inline ya validadas
+(\texttt{navigate\_to\_room\_stage}, \texttt{select\_best\_candidate},
+\texttt{scan\_360\_and\_verify}, \texttt{fine\_visual\_center}).
 
 \subsection{Fase G --- LLM estratégico sobre estado estructurado}
 
@@ -845,13 +879,13 @@ reflejarse en ellas.
 A & Capa de habitaciones HSSD & Infraestructura & \textcolor{done}{Hecho} \\
 B & RoomState + SearchState & A & \textcolor{done}{Hecho} \\
 C & Priors objeto $\rightarrow$ habitación & Mapper LLM & \textcolor{done}{Hecho} \\
-D & Selector de habitación & B + C & 1--2 sesiones \\
-E & Candidatos intra-habitación & D + pipeline M2 & 1 sesión \\
-F & Acciones de alto nivel & E & 1--2 sesiones \\
+D & Selector de habitación & B + C & \textcolor{done}{Hecho} \\
+E & Candidatos intra-habitación & D + pipeline M2 & \textcolor{done}{Hecho} \\
+F & Acciones de alto nivel & E & \textcolor{done}{Hecho} \\
 G & LLM estratégico con estado & B + C + F & 2 sesiones \\
 H & Métricas de evaluación & F & 1 sesión \\
 \midrule
-  & \textbf{Esfuerzo restante estimado} & & \textbf{6--8 sesiones} \\
+  & \textbf{Esfuerzo restante estimado} & & \textbf{3 sesiones} \\
 \bottomrule
 \end{tabular}
 \end{center}
