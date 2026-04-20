@@ -312,7 +312,7 @@ if torch.cuda.is_available():
                         echo "► Generating obstacle map images for scene $scene  [$DS_LABEL]..."
                         cd /workspace/third_party/vlmaps
                         python "$APP/generate_obstacle_map_png.py" \
-                            data_paths="$DATA_PATHS" scene_id="$scene" $NAV_EXTRA
+                            data_paths="$DATA_PATHS" scene_id="$scene"
                         ;;
                     n|N)
                         if [ "$DATASET_TYPE" = "hssd" ]; then
