@@ -344,7 +344,7 @@ decisiva que permitirá demostrar la hipótesis central del TFG.
         \textit{quality} (Sección~\ref{sec:heatmap-flow}).
 \end{itemize}
 
-\subsubsection*{Capa room-aware ya disponible (Fases A, B, C)}
+\subsubsection*{Capa room-aware ya disponible (Fases A, B, C, D)}
 
 \begin{itemize}
   \item[\checkmark] \textbf{Fase A --- capa de habitaciones HSSD}.
@@ -364,6 +364,12 @@ decisiva que permitirá demostrar la hipótesis central del TFG.
         \texttt{compute\_room\_priors()}. El resultado normalizado se almacena
         en \texttt{RoomState.target\_relevance} y se imprime como traza al
         inicio de cada búsqueda.
+  \item[\checkmark] \textbf{Fase D --- selector de habitación}. Antes del
+        ranking final de candidatos, el sistema calcula un
+        \texttt{room\_score} por habitación combinando prior semántico,
+        evidencia del heatmap, coste BFS desde la posición actual y
+        penalización por intentos fallidos. La habitación ganadora restringe
+        el conjunto de candidatos que pasa al ranking fino.
 \end{itemize}
 
 \subsubsection*{Soporte experimental}
@@ -394,8 +400,7 @@ Fase A: capa de habitaciones HSSD & \textcolor{done}{Completado} \\
 Fase B: \texttt{RoomState} + \texttt{SearchState} & \textcolor{done}{Completado} \\
 Fase C: priors objeto $\rightarrow$ habitación & \textcolor{done}{Completado} \\
 \midrule
-Fase D: selector de habitación &
-  \textcolor{pendingcol}{\textbf{Núcleo pendiente}} \\
+Fase D: selector de habitación & \textcolor{done}{Completado} \\
 Fase E: candidatos intra-habitación & \textcolor{pendingcol}{Pendiente} \\
 Fase F: acciones de alto nivel & \textcolor{pendingcol}{Pendiente} \\
 Fase G: LLM estratégico con estado & \textcolor{pendingcol}{Pendiente} \\
@@ -412,18 +417,16 @@ Extensión ROS\,1 + Toyota HSR & \textcolor{partialcol}{Futura} \\
 \subsection{Resumen honesto del estado}
 
 El sistema dispone ya de los tres pilares semánticos (habitación, mueble,
-objeto) y de toda la infraestructura para usarlos. Lo que falta es la
-\textbf{política} que los integre en una decisión coherente: actualmente el
-robot conoce los priors de habitación, sabe qué mueble buscar y sabe
-verificar con YOLOE, pero la selección final del candidato sigue dominada por
-el ranking global del heatmap, no por la jerarquía habitación~$\rightarrow$
-mueble~$\rightarrow$ objeto.
+objeto) y de toda la infraestructura para usarlos. La primera decisión
+jerárquica real ya existe: el selector de habitación (Fase~D) decide ahora
+qué habitación merece inspección antes de elegir el candidato concreto.
 
-El cierre de esa política es el bloque de fases D--H descrito en la
-Sección~\ref{sec:room-aware}. No es una tarea de infraestructura: es la pieza
-que convierte un sistema con muchos componentes semánticos disponibles en un
-buscador jerárquico real, y es exactamente la pieza que permite demostrar la
-hipótesis central del TFG.
+Lo que falta es cerrar el resto de la política room-aware: restringir de forma
+más explícita la búsqueda al subconjunto intra-habitación (Fase~E),
+formalizarla como acciones de alto nivel (Fase~F), permitir razonamiento
+estratégico con estado estructurado (Fase~G) y medirla con métricas propias
+(Fase~H). Ese bloque restante es el que convertirá el sistema actual en un
+buscador jerárquico completo y defendible experimentalmente.
 
 % =============================================================================
 \section{Arquitectura funcional actual}
@@ -1548,6 +1551,20 @@ disponibilidad del robot HSR en el laboratorio V4R del TU Wien.
         reduce prácticamente a cero. Así, la reproducción visual resulta mucho
         más fluida sin penalizar perceptiblemente el rendimiento de la
         simulación ni complicar la arquitectura de depuración actual.
+
+  \item \textbf{Fase D implementada en el pipeline real}: el razonamiento por
+        habitaciones deja de ser una traza auxiliar y pasa a intervenir en la
+        decisión. Se añade una función \texttt{select\_best\_room()} que, a
+        partir de \texttt{SearchState}, la evidencia del heatmap y la posición
+        actual del robot, calcula un \texttt{room\_score} por habitación con
+        cuatro señales ya disponibles en el sistema: prior semántico, evidencia
+        agregada del heatmap, coste BFS sobre el mapa libre y penalización por
+        intentos fallidos previos en esa habitación. La habitación ganadora se
+        usa inmediatamente para filtrar \texttt{kept\_components} antes del
+        ranking fino de candidatos, de modo que el flujo deja de ser
+        puramente global. La implementación actual utiliza una proxy práctica
+        de \textit{unexplored} basada en visitas y fallos acumulados, y deja
+        el seguimiento de cobertura detallada para la futura Fase~F.
 
 \end{enumerate}
 
