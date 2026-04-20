@@ -1566,6 +1566,30 @@ disponibilidad del robot HSR en el laboratorio V4R del TU Wien.
         de \textit{unexplored} basada en visitas y fallos acumulados, y deja
         el seguimiento de cobertura detallada para la futura Fase~F.
 
+  \item \textbf{Ajustes del flujo de búsqueda visual y preparación de tests por
+        lote}: tras estabilizar la Fase~D se corrigen varios detalles del flujo
+        objeto$\rightarrow$detección. Primero, la selección de goals de
+        aproximación deja de aceptar puntos que, aun teniendo clearance y
+        perteneciendo a la misma habitación, quedarían geométricamente al otro
+        lado de una pared respecto al centroid del candidato; ahora se exige
+        además línea libre sobre el mapa de planificación. Segundo, las
+        consultas directas a muebles presentes en la escena (por ejemplo
+        \texttt{sofa} o \texttt{sink}) dejan de pasar por el \textit{room
+        selector}: en ese modo se fuerza una política \textit{nearest-first}
+        sobre los candidatos del heatmap y el razonamiento por habitaciones se
+        reserva para consultas indirectas o ambiguas. Tercero, cuando la query
+        sí activa selección de habitación, se añade un \textit{room stage}
+        explícito: el robot navega primero a un goal interior seguro de la sala
+        elegida y solo después realiza el acercamiento al candidato concreto,
+        evitando verificar desde el centro de una habitación equivocada.
+        Cuarto, la confirmación YOLOE pasa a congelar tanto la vista RGB
+        anotada como el punto objetivo sobre el mapa cenital, dejando una marca
+        persistente de la detección positiva. Finalmente, se preparan scripts
+        de \textit{batch testing} para generar automáticamente una batería de
+        consultas con todas las habitaciones suficientemente navegables y con
+        todos los objetos presentes en la escena, dejando el runtime real de
+        esas pruebas para la siguiente ronda de validación manual.
+
 \end{enumerate}
 
 \end{document}
