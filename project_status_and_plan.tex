@@ -1817,6 +1817,30 @@ disponibilidad del robot HSR en el laboratorio V4R del TU Wien.
         baseline con las métricas de Fase~H y con volcados lado a lado del
         heatmap baseline y del heatmap procesado \emph{room-aware}.
 
+  \item \textbf{Resolución explícita de instancias de habitación en el parser y
+        en la comprobación de llegada}: se corrige un fallo funcional relevante
+        del flujo de navegación por habitaciones. Hasta este punto, órdenes como
+        \texttt{bathroom.001} o expresiones más naturales como
+        \texttt{bathroom 1} terminaban colapsándose sobre la habitación base
+        \texttt{bathroom}, porque el pipeline solo distinguía familias
+        semánticas y no instancias concretas. Se introduce un resolvedor
+        explícito de nombres de habitación en \texttt{room\_provider.py}, capaz
+        de mapear alias amigables
+        (\texttt{bathroom 1}, \texttt{bathroom one}, \texttt{bedroom 2}) a sus
+        etiquetas exactas de escena (\texttt{bathroom.001},
+        \texttt{bedroom.002}, etc.), manteniendo a la vez el comportamiento
+        esperado para comandos base como \texttt{bathroom} o \texttt{bedroom},
+        que siguen prefiriendo la habitación principal cuando existe. Esta
+        resolución se conecta tanto al \emph{baseline} como al nuevo
+        \emph{executor}: tras el parse LLM se preservan menciones explícitas de
+        instancia presentes en la instrucción original, la selección de
+        \emph{room goals} pasa a usar la instancia resuelta y la condición de
+        llegada deja de aceptar que \texttt{bathroom} satisfaga
+        \texttt{bathroom.001}. Se añade además una batería unitaria nueva
+        (\texttt{tests/test\_room\_instance\_resolution.py}) que valida la
+        distinción entre habitación base e instancia numerada, junto con la
+        compatibilidad con el resto de la capa de acciones de Fase~F.
+
 \end{enumerate}
 
 \end{document}
