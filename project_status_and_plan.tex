@@ -832,7 +832,23 @@ pipeline actual --- entrypoint nuevo, ejecutor de acciones y comparación
 de heatmaps --- queda recogido en el
 \hyperref[sec:apartado-extra]{apartado extra} previo a la migración a ROS.
 
-\textbf{Esfuerzo estimado}: 2 sesiones.
+\textbf{Estado.} \textcolor{partialcol}{Implementación inicial lista}. Se ha
+añadido un módulo nuevo \texttt{vlmaps/policy/strategic\_policy.py} que
+construye un \emph{snapshot} estructurado del episodio (habitación actual,
+prior/evidence por habitación, shortlist de candidatos, frontiers sugeridos y
+últimas acciones), intenta decidir la \emph{siguiente} acción mediante LLM
+(\texttt{gpt-4o-mini}) y valida la salida contra el vocabulario de Fase~F. Si
+el LLM falla, devuelve JSON inválido o propone una acción inconsistente, la
+decisión cae automáticamente al \emph{fallback} heurístico. El
+\texttt{interactive\_object\_nav\_executor.py} deja así de preplanificar una
+lista fija de acciones y pasa a operar en un bucle de
+\texttt{choose\_next\_action()} $\rightarrow$ \texttt{execute\_action()}, con
+modo seleccionable \texttt{heuristic}/\texttt{hybrid}/\texttt{llm} desde el
+menú del contenedor. Queda pendiente la validación sistemática en runtime y el
+ajuste fino de la política, pero la transición arquitectónica ya está
+materializada.
+
+\textbf{Esfuerzo restante estimado}: 1--2 sesiones.
 
 \subsection{Fase H --- Métricas que demuestran la hipótesis}
 \label{sec:fase-h}
@@ -888,10 +904,10 @@ C & Priors objeto $\rightarrow$ habitación & Mapper LLM & \textcolor{done}{Hech
 D & Selector de habitación & B + C & \textcolor{done}{Hecho} \\
 E & Candidatos intra-habitación & D + pipeline M2 & \textcolor{done}{Hecho} \\
 F & Acciones de alto nivel & E & \textcolor{done}{Hecho} \\
-G & LLM estratégico con estado & B + C + F & 2 sesiones \\
+G & LLM estratégico con estado & B + C + F & \textcolor{partialcol}{Parcial} \\
 H & Métricas de evaluación & F & 1 sesión \\
 \midrule
-  & \textbf{Esfuerzo restante estimado} & & \textbf{3 sesiones} \\
+  & \textbf{Esfuerzo restante estimado} & & \textbf{2 sesiones} \\
 \bottomrule
 \end{tabular}
 \end{center}
@@ -1056,10 +1072,14 @@ siguiente) puede acometerse sustituyendo \emph{solo} las capas de
 percepción, navegación y ejecución, sin tocar la capa de decisión, que
 ya está validada en simulación.
 
-\textbf{Estado actual}: \textcolor{partialcol}{implementación inicial lista,
-comparativa pendiente}. El trabajo restante se centra en lanzar ambos
-entrypoints sobre el mismo lote de \emph{queries}, recoger métricas y
-documentar las diferencias cualitativas de heatmap y trayectoria.
+\textbf{Estado actual}: \textcolor{partialcol}{tooling listo, comparativa
+sistemática pendiente}. El repositorio ya incluye un \emph{runner} batch
+(\texttt{tools/run\_hssd\_nav\_compare.sh}) que ejecuta el mismo lote de
+\emph{queries} contra el baseline y el executor, y un resumidor
+(\texttt{tools/compare\_nav\_runs.py}) que genera CSV + markdown con la
+comparación query-a-query. El trabajo restante se centra en usar esa
+infraestructura sobre escenas representativas, recoger métricas y documentar
+las diferencias cualitativas de heatmap y trayectoria.
 
 % =============================================================================
 \section{Extensión futura: ROS\,1 Noetic + Toyota HSR}
@@ -1840,6 +1860,38 @@ disponibilidad del robot HSR en el laboratorio V4R del TU Wien.
         (\texttt{tests/test\_room\_instance\_resolution.py}) que valida la
         distinción entre habitación base e instancia numerada, junto con la
         compatibilidad con el resto de la capa de acciones de Fase~F.
+
+  \item \textbf{Batería de comparación baseline vs.\ executor disponible desde
+        el menú}: el apartado extra deja de ser solo una propuesta en papel y
+        pasa a tener una infraestructura operativa para lanzar comparaciones
+        controladas. Se añade al menú del contenedor la opción
+        \texttt{v) Compare --- baseline vs executor}, que genera un lote común
+        de \emph{queries}, ejecuta ambas variantes del navegador sobre ese mismo
+        fichero de entrada y resume el resultado en \texttt{CSV} y
+        \texttt{markdown}. La implementación queda repartida entre
+        \texttt{tools/nav\_batch\_queries.py} (generación del lote),
+        \texttt{tools/run\_hssd\_nav\_compare.sh} (orquestación host-side) y
+        \texttt{tools/compare\_nav\_runs.py} (resumen query-a-query de
+        detecciones, habitación final, abortos y número de actualizaciones de
+        pose). No sustituye todavía a la evaluación de Fase~H, pero elimina el
+        trabajo manual repetitivo de abrir y comparar logs a mano.
+
+  \item \textbf{Primer corte funcional de Fase~G sobre el executor}: se añade
+        \texttt{vlmaps/policy/strategic\_policy.py} como capa de decisión
+        estratégica sobre estado estructurado. Esta pieza construye un
+        \emph{snapshot} del episodio (prior de habitaciones, evidencia del
+        heatmap, shortlist de candidatos, frontiers sugeridos y últimas
+        acciones), consulta opcionalmente a un LLM para pedir la siguiente
+        \texttt{Action} en formato JSON y valida esa propuesta antes de
+        ejecutarla. Si el LLM no está disponible o devuelve una acción
+        inconsistente, el sistema cae automáticamente a una política
+        heurística determinista, lo que evita romper el flujo ya validado del
+        executor. A nivel de integración, \texttt{interactive\_object\_nav\_executor.py}
+        deja de preconstruir un plan fijo y pasa a operar como bucle
+        ``elegir siguiente acción $\rightarrow$ ejecutar acción'', con modo de
+        política seleccionable desde el menú (\texttt{heuristic},
+        \texttt{hybrid}, \texttt{llm}). La validación unitaria queda cubierta
+        por \texttt{tests/test\_phase\_g\_strategic\_policy.py}.
 
 \end{enumerate}
 

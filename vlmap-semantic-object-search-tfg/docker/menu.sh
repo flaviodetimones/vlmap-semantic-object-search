@@ -145,6 +145,7 @@ while true; do
                 echo "  │  t) Test — batch nav (auto queries)             │"
                 echo "  │  v) Compare — baseline vs executor              │"
                 echo "  │  p) Test — Phase F policy unit tests            │"
+                echo "  │  u) Test — Phase G strategic policy tests       │"
                 echo "  │  g) Generate obstacle map image                 │"
                 if [ "$DATASET_TYPE" = "mp3d" ]; then
                 echo "  │  n) Label rooms (LabelMe → room_map)            │"
@@ -188,6 +189,8 @@ while true; do
                         echo "    python $APP/interactive_object_nav_executor.py data_paths=hssd scene_id=0 \\"
                         echo "        dataset_type=hssd \\"
                         echo "        scene_dataset_config_file=$HSSD_CFG"
+                        echo "    # Optional policy mode:"
+                        echo "    VLMAPS_POLICY_MODE=hybrid   # or heuristic / llm"
                         echo ""
                         echo "  ── Step 5 · Compare baseline vs executor ───────────────────"
                         echo ""
@@ -217,6 +220,8 @@ while true; do
                         echo "  ── Step 4 · Interactive executor navigation ────────────────"
                         echo ""
                         echo "    python $APP/interactive_object_nav_executor.py data_paths=docker scene_id=0"
+                        echo "    # Optional policy mode:"
+                        echo "    VLMAPS_POLICY_MODE=hybrid   # or heuristic / llm"
                         fi
                         echo ""
                         echo "════════════════════════════════════════════════════════════════"
@@ -390,12 +395,15 @@ while true; do
                         echo -n "  scene_id to use (default 0): "
                         read -r scene
                         scene=${scene:-0}
+                        echo -n "  policy mode [heuristic|hybrid|llm] (default hybrid): "
+                        read -r policy_mode
+                        policy_mode=${policy_mode:-hybrid}
                         echo ""
-                        echo "► Launching interactive executor navigation (scene $scene)  [$DS_LABEL]..."
+                        echo "► Launching interactive executor navigation (scene $scene, policy=$policy_mode)  [$DS_LABEL]..."
                         echo "  Type instructions at the prompt. Type 'quit' to stop."
                         echo ""
                         cd /workspace/third_party/vlmaps
-                        python "$APP/interactive_object_nav_executor.py" \
+                        VLMAPS_POLICY_MODE="$policy_mode" python "$APP/interactive_object_nav_executor.py" \
                             data_paths="$DATA_PATHS" scene_id="$scene" $NAV_EXTRA
                         ;;
                     t|T)
@@ -535,6 +543,22 @@ while true; do
                         echo ""
                         cd /workspace/third_party/vlmaps
                         python -m pytest tests/test_phase_f_actions.py -v
+                        ;;
+                    u|U)
+                        echo ""
+                        echo "► Running Phase G strategic policy tests..."
+                        echo "  These tests do not need Habitat, GPU or a scene."
+                        echo "  They validate:"
+                        echo "    - heuristic next-action selection"
+                        echo "    - verify_target follow-up after failed inspection"
+                        echo "    - LLM-action validation and fallback"
+                        echo "    - strategic policy integration contract"
+                        echo ""
+                        cd /workspace/third_party/vlmaps
+                        python -m pytest \
+                            tests/test_phase_g_strategic_policy.py \
+                            tests/test_phase_f_actions.py \
+                            tests/test_room_instance_resolution.py -v
                         ;;
                     g|G)
                         echo ""
