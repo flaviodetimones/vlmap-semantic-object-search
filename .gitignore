@@ -17,8 +17,9 @@ venv/
 *.swp
 .DS_Store
 Thumbs.db
-results/*.png
-results/*.npy
+results/
+tools/eval_results/
+*.pt
 .ipynb_checkpoints/
 logs/
 *.log

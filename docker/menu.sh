@@ -4,30 +4,30 @@ export OPENAI_KEY="${OPENAI_KEY:-$OPENAI_API_KEY}"
 APP=/workspace/third_party/vlmaps/application
 DATASET=/workspace/third_party/vlmaps/dataset
 
-while true; do
-    echo ""
-    echo "┌─────────────────────────────────────────────────────┐"
-    echo "│                 Available commands                  │"
-    echo "├─────────────────────────────────────────────────────┤"
-    echo "│  1) Check GPU / CUDA                                │"
-    echo "│  2) Show workspace structure                        │"
-    echo "│  3) VLMaps pipeline                                 │"
-    echo "│  4) Start Jupyter Notebook (port 8888)              │"
-    echo "│  5) Install / update Python dependencies            │"
-    echo "│  6) Open interactive Python shell (conda tfg)       │"
-    echo "│  q) Quit                                            │"
-    echo "└─────────────────────────────────────────────────────┘"
-    echo -n "  Select an option: "
-    read -r opcion
+run_other_menu() {
+    while true; do
+        echo ""
+        echo "  ┌─────────────────────────────────────────────────────┐"
+        echo "  │                    Other tools                      │"
+        echo "  ├─────────────────────────────────────────────────────┤"
+        echo "  │  1) Check GPU / CUDA                                │"
+        echo "  │  2) Show workspace structure                        │"
+        echo "  │  3) Start Jupyter Notebook (port 8888)              │"
+        echo "  │  4) Install / update Python dependencies            │"
+        echo "  │  5) Open interactive Python shell (conda tfg)       │"
+        echo "  │  b) Back                                            │"
+        echo "  └─────────────────────────────────────────────────────┘"
+        echo -n "  Select an option: "
+        read -r other_opt
 
-    case "$opcion" in
-        1)
-            echo ""
-            echo "► GPU / CUDA status:"
-            echo "─────────────────────────────────────────"
-            nvidia-smi 2>/dev/null || echo "  nvidia-smi not available"
-            echo ""
-            python -c "
+        case "$other_opt" in
+            1)
+                echo ""
+                echo "► GPU / CUDA status:"
+                echo "─────────────────────────────────────────"
+                nvidia-smi 2>/dev/null || echo "  nvidia-smi not available"
+                echo ""
+                python -c "
 import torch
 print(f'  PyTorch   : {torch.__version__}')
 print(f'  CUDA avail: {torch.cuda.is_available()}')
@@ -35,16 +35,74 @@ if torch.cuda.is_available():
     print(f'  GPU       : {torch.cuda.get_device_name(0)}')
     print(f'  VRAM total: {torch.cuda.get_device_properties(0).total_memory / 1e9:.1f} GB')
 "
-            ;;
+                ;;
+            2)
+                echo ""
+                echo "► Workspace structure:"
+                echo "─────────────────────────────────────────"
+                find /workspace -maxdepth 2 -not -path '*/\.*' \
+                    -not -path '*/data/*' -not -path '*/results/*' \
+                    | sort | sed 's|/workspace/||; s|^|  |'
+                ;;
+            3)
+                echo ""
+                echo "► Launching Jupyter Notebook at http://localhost:8888 ..."
+                jupyter notebook --ip=0.0.0.0 --port=8888 --no-browser --allow-root \
+                    --NotebookApp.token='' --NotebookApp.password=''
+                ;;
+            4)
+                echo ""
+                echo "► Installing/updating dependencies from requirements.txt..."
+                if [ -f /workspace/docker/requirements.txt ]; then
+                    pip install -r /workspace/docker/requirements.txt
+                    LABELME_FILE=/opt/conda/envs/tfg/lib/python3.9/site-packages/labelme/_label_file.py
+                    if [ -f "$LABELME_FILE" ]; then
+                        sed -i 's/NDArray\[np\.bool\]/NDArray[np.bool_]/g' "$LABELME_FILE"
+                        echo "  labelme np.bool patch applied."
+                    fi
+                else
+                    echo "  /workspace/docker/requirements.txt not found."
+                fi
+                ;;
+            5)
+                echo ""
+                echo "► Opening interactive Python (conda env: tfg)..."
+                python
+                ;;
+            b|B)
+                break
+                ;;
+            *)
+                echo "  Invalid option."
+                ;;
+        esac
+    done
+}
+
+while true; do
+    echo ""
+    echo "┌─────────────────────────────────────────────────────┐"
+    echo "│                 Available commands                  │"
+    echo "├─────────────────────────────────────────────────────┤"
+    echo "│  1) VLMaps pipeline                  [default]      │"
+    echo "│  2) Other tools (GPU, Jupyter, deps, shell, ...)    │"
+    echo "│  q) Quit                                            │"
+    echo "└─────────────────────────────────────────────────────┘"
+    echo -n "  Select an option (default 1): "
+    read -r opcion
+    opcion=${opcion:-1}
+
+    case "$opcion" in
         2)
-            echo ""
-            echo "► Workspace structure:"
-            echo "─────────────────────────────────────────"
-            find /workspace -maxdepth 2 -not -path '*/\.*' \
-                -not -path '*/data/*' -not -path '*/results/*' \
-                | sort | sed 's|/workspace/||; s|^|  |'
+            run_other_menu
             ;;
-        3)
+        q|Q)
+            echo ""
+            echo "  Bye!"
+            echo ""
+            break
+            ;;
+        1)
             # ── Dataset selection ─────────────────────────────────────────
             echo ""
             echo "  ┌─────────────────────────────────────────────────┐"
@@ -53,23 +111,23 @@ if torch.cuda.is_available():
             echo "  │  1) MP3D  (Matterport3D — escenas reales)       │"
             echo "  │  2) HSSD  (Habitat Static Scene Dataset)        │"
             echo "  └─────────────────────────────────────────────────┘"
-            echo -n "  Dataset (1/2, default 1): "
+            echo -n "  Dataset (1/2, default 2): "
             read -r ds_choice
-            ds_choice=${ds_choice:-1}
+            ds_choice=${ds_choice:-2}
 
-            if [ "$ds_choice" = "2" ]; then
+            if [ "$ds_choice" = "1" ]; then
+                DATASET_TYPE="mp3d"
+                DATA_PATHS="docker"
+                SCENES_DIR=/workspace/data/vlmaps_dataset
+                NAV_EXTRA=""
+                DS_LABEL="MP3D"
+            else
                 DATASET_TYPE="hssd"
                 DATA_PATHS="hssd"
                 SCENES_DIR=/workspace/data/vlmaps_dataset_hssd
                 HSSD_CFG=/workspace/data/versioned_data/hssd-hab/hssd-hab.scene_dataset_config.json
                 NAV_EXTRA="dataset_type=hssd scene_dataset_config_file=$HSSD_CFG"
                 DS_LABEL="HSSD"
-            else
-                DATASET_TYPE="mp3d"
-                DATA_PATHS="docker"
-                SCENES_DIR=/workspace/data/vlmaps_dataset
-                NAV_EXTRA=""
-                DS_LABEL="MP3D"
             fi
 
             while true; do
@@ -82,15 +140,22 @@ if torch.cuda.is_available():
                 echo "  │  c) Collect dataset                             │"
                 echo "  │  m) Create VLMap          (scene_id required)   │"
                 echo "  │  i) Index map             (scene_id required)   │"
-                echo "  │  l) Interactive LLM navigation                  │"
+                echo "  │  l) Interactive LLM navigation       [default]  │"
+                echo "  │  e) Interactive executor navigation             │"
+                echo "  │  t) Test — batch nav (auto queries)             │"
+                echo "  │  v) Compare — baseline vs executor              │"
+                echo "  │  y) Generate eval query JSONL                   │"
+                echo "  │  p) Test — Phase F policy unit tests            │"
+                echo "  │  u) Test — Phase G strategic policy tests       │"
                 echo "  │  g) Generate obstacle map image                 │"
                 if [ "$DATASET_TYPE" = "mp3d" ]; then
                 echo "  │  n) Label rooms (LabelMe → room_map)            │"
                 fi
                 echo "  │  b) Back                                        │"
                 echo "  └─────────────────────────────────────────────────┘"
-                echo -n "  Select: "
+                echo -n "  Select (default l): "
                 read -r sub
+                sub=${sub:-l}
 
                 case "$sub" in
                     r|R)
@@ -119,6 +184,19 @@ if torch.cuda.is_available():
                         echo "    python $APP/interactive_object_nav.py data_paths=hssd scene_id=0 \\"
                         echo "        dataset_type=hssd \\"
                         echo "        scene_dataset_config_file=$HSSD_CFG"
+                        echo ""
+                        echo "  ── Step 4 · Interactive executor navigation ────────────────"
+                        echo ""
+                        echo "    python $APP/interactive_object_nav_executor.py data_paths=hssd scene_id=0 \\"
+                        echo "        dataset_type=hssd \\"
+                        echo "        scene_dataset_config_file=$HSSD_CFG"
+                        echo "    # Optional policy mode:"
+                        echo "    VLMAPS_POLICY_MODE=hybrid   # or heuristic / llm"
+                        echo ""
+                        echo "  ── Step 5 · Compare baseline vs executor ───────────────────"
+                        echo ""
+                        echo "    # From host:"
+                        echo "    bash /home/mario/tfg/vlmap-semantic-object-search-tfg/tools/run_hssd_nav_compare.sh 0 0.25"
                         else
                         echo "  All scripts use Hydra. Run them from inside the container."
                         echo "  data_paths=docker uses /workspace/data paths."
@@ -139,6 +217,12 @@ if torch.cuda.is_available():
                         echo "  ── Step 3 · Interactive LLM navigation ──────────────────────"
                         echo ""
                         echo "    python $APP/interactive_object_nav.py data_paths=docker scene_id=0"
+                        echo ""
+                        echo "  ── Step 4 · Interactive executor navigation ────────────────"
+                        echo ""
+                        echo "    python $APP/interactive_object_nav_executor.py data_paths=docker scene_id=0"
+                        echo "    # Optional policy mode:"
+                        echo "    VLMAPS_POLICY_MODE=hybrid   # or heuristic / llm"
                         fi
                         echo ""
                         echo "════════════════════════════════════════════════════════════════"
@@ -291,6 +375,225 @@ if torch.cuda.is_available():
                         python "$APP/interactive_object_nav.py" \
                             data_paths="$DATA_PATHS" scene_id="$scene" $NAV_EXTRA
                         ;;
+                    e|E)
+                        echo ""
+                        if [ -z "$OPENAI_API_KEY" ]; then
+                            echo "  WARNING: OPENAI_API_KEY is not set. The script will fail."
+                            echo "  Set it with: export OPENAI_API_KEY=sk-..."
+                        fi
+                        echo "  Available scenes [$DS_LABEL]:"
+                        echo "  ─────────────────────────────────────────────────"
+                        if [ -d "$SCENES_DIR" ]; then
+                            i=0
+                            while IFS= read -r dir; do
+                                echo "    scene_id=$i  →  $(basename "$dir")"
+                                i=$((i+1))
+                            done < <(find "$SCENES_DIR" -mindepth 1 -maxdepth 1 -type d | sort)
+                        else
+                            echo "    (data directory not found)"
+                        fi
+                        echo ""
+                        echo -n "  scene_id to use (default 0): "
+                        read -r scene
+                        scene=${scene:-0}
+                        echo -n "  policy mode [heuristic|hybrid|llm] (default hybrid): "
+                        read -r policy_mode
+                        policy_mode=${policy_mode:-hybrid}
+                        echo ""
+                        echo "► Launching interactive executor navigation (scene $scene, policy=$policy_mode)  [$DS_LABEL]..."
+                        echo "  Type instructions at the prompt. Type 'quit' to stop."
+                        echo ""
+                        cd /workspace/third_party/vlmaps
+                        VLMAPS_POLICY_MODE="$policy_mode" python "$APP/interactive_object_nav_executor.py" \
+                            data_paths="$DATA_PATHS" scene_id="$scene" $NAV_EXTRA
+                        ;;
+                    t|T)
+                        echo ""
+                        if [ "$DATASET_TYPE" != "hssd" ]; then
+                            echo "  Batch test (auto queries) is currently HSSD-only."
+                            echo "  Switch to HSSD from the dataset menu."
+                        elif [ -z "$OPENAI_API_KEY" ]; then
+                            echo "  WARNING: OPENAI_API_KEY is not set. Set it before running tests."
+                        else
+                            echo "  Available scenes [$DS_LABEL]:"
+                            echo "  ─────────────────────────────────────────────────"
+                            if [ -d "$SCENES_DIR" ]; then
+                                i=0
+                                while IFS= read -r dir; do
+                                    echo "    scene_id=$i  →  $(basename "$dir")"
+                                    i=$((i+1))
+                                done < <(find "$SCENES_DIR" -mindepth 1 -maxdepth 1 -type d | sort)
+                            fi
+                            echo ""
+                            echo -n "  scene_id (default 1): "
+                            read -r scene
+                            scene=${scene:-1}
+                            echo -n "  Min navigable fraction per room (default 0.25): "
+                            read -r min_nav
+                            min_nav=${min_nav:-0.25}
+
+                            STAMP=$(date +%Y%m%d_%H%M%S)
+                            OUT_DIR="/workspace/results/nav_batch_${STAMP}"
+                            mkdir -p "$OUT_DIR"
+                            QUERY_FILE="$OUT_DIR/queries.txt"
+                            LOG_FILE="$OUT_DIR/interactive_nav.log"
+
+                            echo ""
+                            echo "► Generating queries → $QUERY_FILE"
+                            cd /workspace
+                            python tools/nav_batch_queries.py \
+                                --scene-id "$scene" \
+                                --min-room-navigable "$min_nav" > "$QUERY_FILE"
+                            printf 'quit\n' >> "$QUERY_FILE"
+
+                            echo "► Running interactive_object_nav with batched queries..."
+                            echo "  Log: $LOG_FILE"
+                            echo ""
+                            cd /workspace/third_party/vlmaps
+                            python "$APP/interactive_object_nav.py" \
+                                data_paths="$DATA_PATHS" scene_id="$scene" $NAV_EXTRA \
+                                < "$QUERY_FILE" | tee "$LOG_FILE"
+
+                            echo ""
+                            echo "  Queries: $QUERY_FILE"
+                            echo "  Log:     $LOG_FILE"
+                        fi
+                        ;;
+                    v|V)
+                        echo ""
+                        if [ "$DATASET_TYPE" != "hssd" ]; then
+                            echo "  Comparison batch is currently HSSD-only."
+                            echo "  Switch to HSSD from the dataset menu."
+                        elif [ -z "$OPENAI_API_KEY" ]; then
+                            echo "  WARNING: OPENAI_API_KEY is not set. Set it before running comparison."
+                        else
+                            echo "  Available scenes [$DS_LABEL]:"
+                            echo "  ─────────────────────────────────────────────────"
+                            if [ -d "$SCENES_DIR" ]; then
+                                i=0
+                                while IFS= read -r dir; do
+                                    echo "    scene_id=$i  →  $(basename "$dir")"
+                                    i=$((i+1))
+                                done < <(find "$SCENES_DIR" -mindepth 1 -maxdepth 1 -type d | sort)
+                            fi
+                            echo ""
+                            echo -n "  scene_id (default 1): "
+                            read -r scene
+                            scene=${scene:-1}
+                            echo -n "  Min navigable fraction per room (default 0.25): "
+                            read -r min_nav
+                            min_nav=${min_nav:-0.25}
+
+                            STAMP=$(date +%Y%m%d_%H%M%S)
+                            OUT_DIR="/workspace/results/nav_compare_${STAMP}"
+                            mkdir -p "$OUT_DIR"
+                            QUERY_FILE="$OUT_DIR/queries.txt"
+                            BASELINE_LOG="$OUT_DIR/baseline.log"
+                            EXECUTOR_LOG="$OUT_DIR/executor.log"
+                            SUMMARY_CSV="$OUT_DIR/summary.csv"
+                            SUMMARY_MD="$OUT_DIR/summary.md"
+
+                            echo ""
+                            echo "► Generating shared queries → $QUERY_FILE"
+                            cd /workspace
+                            python tools/nav_batch_queries.py \
+                                --scene-id "$scene" \
+                                --min-room-navigable "$min_nav" > "$QUERY_FILE"
+                            printf 'quit\n' >> "$QUERY_FILE"
+
+                            echo "► Running baseline..."
+                            echo "  Log: $BASELINE_LOG"
+                            cd /workspace/third_party/vlmaps
+                            python "$APP/interactive_object_nav.py" \
+                                data_paths="$DATA_PATHS" scene_id="$scene" $NAV_EXTRA \
+                                < "$QUERY_FILE" | tee "$BASELINE_LOG"
+
+                            echo ""
+                            echo "► Running executor..."
+                            echo "  Log: $EXECUTOR_LOG"
+                            python "$APP/interactive_object_nav_executor.py" \
+                                data_paths="$DATA_PATHS" scene_id="$scene" $NAV_EXTRA \
+                                < "$QUERY_FILE" | tee "$EXECUTOR_LOG"
+
+                            echo ""
+                            echo "► Building comparison summary..."
+                            cd /workspace
+                            python tools/compare_nav_runs.py \
+                                --baseline-log "$BASELINE_LOG" \
+                                --executor-log "$EXECUTOR_LOG" \
+                                --out-csv "$SUMMARY_CSV" \
+                                --out-md "$SUMMARY_MD"
+
+                            echo ""
+                            echo "  Queries:       $QUERY_FILE"
+                            echo "  Baseline log:  $BASELINE_LOG"
+                            echo "  Executor log:  $EXECUTOR_LOG"
+                            echo "  Summary CSV:   $SUMMARY_CSV"
+                            echo "  Summary MD:    $SUMMARY_MD"
+                        fi
+                        ;;
+                    y|Y)
+                        echo ""
+                        if [ "$DATASET_TYPE" != "hssd" ]; then
+                            echo "  Eval query JSONL generation is currently HSSD-only."
+                            echo "  Switch to HSSD from the dataset menu."
+                        else
+                            echo "► Generating normalized evaluation query JSONL..."
+                            echo "  Output: /workspace/tools/eval_queries/{scene_name}.jsonl"
+                            echo ""
+                            echo -n "  Scene ids comma-separated (default 0,1): "
+                            read -r eval_scene_ids
+                            eval_scene_ids=${eval_scene_ids:-0,1}
+                            echo -n "  Queries per scene (default 50): "
+                            read -r eval_qps
+                            eval_qps=${eval_qps:-50}
+                            echo -n "  Min navigable room ratio (default 0.25): "
+                            read -r eval_min_nav
+                            eval_min_nav=${eval_min_nav:-0.25}
+                            echo -n "  Seed (default 21042026): "
+                            read -r eval_seed
+                            eval_seed=${eval_seed:-21042026}
+                            echo ""
+                            cd /workspace
+                            python tools/build_eval_queries.py \
+                                --scene-ids "$eval_scene_ids" \
+                                --queries-per-scene "$eval_qps" \
+                                --dataset-type "$DATASET_TYPE" \
+                                --data-paths "$DATA_PATHS" \
+                                --scene-dataset-config-file "$HSSD_CFG" \
+                                --min-room-navigable "$eval_min_nav" \
+                                --seed "$eval_seed"
+                        fi
+                        ;;
+                    p|P)
+                        echo ""
+                        echo "► Running Phase F policy unit tests..."
+                        echo "  These tests do not need Habitat, GPU or a scene."
+                        echo "  They validate:"
+                        echo "    - Action dataclass validation"
+                        echo "    - JSON round-trip for all action types"
+                        echo "    - SearchState action log / visited trail"
+                        echo "    - find_frontier_in_room() on synthetic maps"
+                        echo ""
+                        cd /workspace/third_party/vlmaps
+                        python -m pytest tests/test_phase_f_actions.py -v
+                        ;;
+                    u|U)
+                        echo ""
+                        echo "► Running Phase G strategic policy tests..."
+                        echo "  These tests do not need Habitat, GPU or a scene."
+                        echo "  They validate:"
+                        echo "    - heuristic next-action selection"
+                        echo "    - verify_target follow-up after failed inspection"
+                        echo "    - LLM-action validation and fallback"
+                        echo "    - strategic policy integration contract"
+                        echo ""
+                        cd /workspace/third_party/vlmaps
+                        python -m pytest \
+                            tests/test_phase_g_strategic_policy.py \
+                            tests/test_phase_f_actions.py \
+                            tests/test_room_instance_resolution.py -v
+                        ;;
                     g|G)
                         echo ""
                         echo "  Available scenes [$DS_LABEL]:"
@@ -397,40 +700,8 @@ if torch.cuda.is_available():
                 esac
             done
             ;;
-        4)
-            echo ""
-            echo "► Launching Jupyter Notebook at http://localhost:8888 ..."
-            jupyter notebook --ip=0.0.0.0 --port=8888 --no-browser --allow-root \
-                --NotebookApp.token='' --NotebookApp.password=''
-            ;;
-        5)
-            echo ""
-            echo "► Installing/updating dependencies from requirements.txt..."
-            if [ -f /workspace/docker/requirements.txt ]; then
-                pip install -r /workspace/docker/requirements.txt
-                # Patch labelme 5.10.1: np.bool removed in NumPy >=1.24
-                LABELME_FILE=/opt/conda/envs/tfg/lib/python3.9/site-packages/labelme/_label_file.py
-                if [ -f "$LABELME_FILE" ]; then
-                    sed -i 's/NDArray\[np\.bool\]/NDArray[np.bool_]/g' "$LABELME_FILE"
-                    echo "  labelme np.bool patch applied."
-                fi
-            else
-                echo "  /workspace/docker/requirements.txt not found."
-            fi
-            ;;
-        6)
-            echo ""
-            echo "► Opening interactive Python (conda env: tfg)..."
-            python
-            ;;
-        q|Q)
-            echo ""
-            echo "  Bye!"
-            echo ""
-            break
-            ;;
         *)
-            echo "  Invalid option. Choose 1-6 or 'q'."
+            echo "  Invalid option. Choose 1, 2 or 'q'."
             ;;
     esac
 done
