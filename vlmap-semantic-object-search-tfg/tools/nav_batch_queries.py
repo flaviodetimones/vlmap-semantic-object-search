@@ -13,12 +13,14 @@ import sys
 from pathlib import Path
 
 import numpy as np
-from omegaconf import OmegaConf
+from hydra import compose, initialize_config_dir
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT / "third_party" / "vlmaps") not in sys.path:
     sys.path.insert(0, str(REPO_ROOT / "third_party" / "vlmaps"))
+
+CONFIG_DIR = str(REPO_ROOT / "third_party" / "vlmaps" / "config")
 
 from vlmaps.robot.habitat_lang_robot import HabitatLanguageRobot
 from vlmaps.utils.matterport3d_categories import get_categories
@@ -55,11 +57,14 @@ def main() -> None:
     parser.add_argument("--min-room-navigable", type=float, default=0.25)
     args = parser.parse_args()
 
-    cfg = OmegaConf.load(str(REPO_ROOT / "third_party" / "vlmaps" / "config" / "object_goal_navigation_cfg.yaml"))
-    cfg.scene_id = args.scene_id
-    cfg.dataset_type = args.dataset_type
-    cfg.scene_dataset_config_file = args.scene_dataset_config_file
-    cfg.data_paths = args.data_paths
+    overrides = [
+        f"scene_id={args.scene_id}",
+        f"dataset_type={args.dataset_type}",
+        f"scene_dataset_config_file={args.scene_dataset_config_file}",
+        f"data_paths={args.data_paths}",
+    ]
+    with initialize_config_dir(version_base=None, config_dir=CONFIG_DIR):
+        cfg = compose(config_name="object_goal_navigation_cfg", overrides=overrides)
 
     robot = HabitatLanguageRobot(cfg)
     robot.setup_scene(cfg.scene_id)

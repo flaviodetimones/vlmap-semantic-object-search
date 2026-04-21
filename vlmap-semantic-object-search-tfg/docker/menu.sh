@@ -143,6 +143,7 @@ while true; do
                 echo "  │  l) Interactive LLM navigation       [default]  │"
                 echo "  │  e) Interactive executor navigation             │"
                 echo "  │  t) Test — batch nav (auto queries)             │"
+                echo "  │  v) Compare — baseline vs executor              │"
                 echo "  │  p) Test — Phase F policy unit tests            │"
                 echo "  │  g) Generate obstacle map image                 │"
                 if [ "$DATASET_TYPE" = "mp3d" ]; then
@@ -187,6 +188,11 @@ while true; do
                         echo "    python $APP/interactive_object_nav_executor.py data_paths=hssd scene_id=0 \\"
                         echo "        dataset_type=hssd \\"
                         echo "        scene_dataset_config_file=$HSSD_CFG"
+                        echo ""
+                        echo "  ── Step 5 · Compare baseline vs executor ───────────────────"
+                        echo ""
+                        echo "    # From host:"
+                        echo "    bash /home/mario/tfg/vlmap-semantic-object-search-tfg/tools/run_hssd_nav_compare.sh 0 0.25"
                         else
                         echo "  All scripts use Hydra. Run them from inside the container."
                         echo "  data_paths=docker uses /workspace/data paths."
@@ -442,6 +448,79 @@ while true; do
                             echo ""
                             echo "  Queries: $QUERY_FILE"
                             echo "  Log:     $LOG_FILE"
+                        fi
+                        ;;
+                    v|V)
+                        echo ""
+                        if [ "$DATASET_TYPE" != "hssd" ]; then
+                            echo "  Comparison batch is currently HSSD-only."
+                            echo "  Switch to HSSD from the dataset menu."
+                        elif [ -z "$OPENAI_API_KEY" ]; then
+                            echo "  WARNING: OPENAI_API_KEY is not set. Set it before running comparison."
+                        else
+                            echo "  Available scenes [$DS_LABEL]:"
+                            echo "  ─────────────────────────────────────────────────"
+                            if [ -d "$SCENES_DIR" ]; then
+                                i=0
+                                while IFS= read -r dir; do
+                                    echo "    scene_id=$i  →  $(basename "$dir")"
+                                    i=$((i+1))
+                                done < <(find "$SCENES_DIR" -mindepth 1 -maxdepth 1 -type d | sort)
+                            fi
+                            echo ""
+                            echo -n "  scene_id (default 1): "
+                            read -r scene
+                            scene=${scene:-1}
+                            echo -n "  Min navigable fraction per room (default 0.25): "
+                            read -r min_nav
+                            min_nav=${min_nav:-0.25}
+
+                            STAMP=$(date +%Y%m%d_%H%M%S)
+                            OUT_DIR="/workspace/results/nav_compare_${STAMP}"
+                            mkdir -p "$OUT_DIR"
+                            QUERY_FILE="$OUT_DIR/queries.txt"
+                            BASELINE_LOG="$OUT_DIR/baseline.log"
+                            EXECUTOR_LOG="$OUT_DIR/executor.log"
+                            SUMMARY_CSV="$OUT_DIR/summary.csv"
+                            SUMMARY_MD="$OUT_DIR/summary.md"
+
+                            echo ""
+                            echo "► Generating shared queries → $QUERY_FILE"
+                            cd /workspace
+                            python tools/nav_batch_queries.py \
+                                --scene-id "$scene" \
+                                --min-room-navigable "$min_nav" > "$QUERY_FILE"
+                            printf 'quit\n' >> "$QUERY_FILE"
+
+                            echo "► Running baseline..."
+                            echo "  Log: $BASELINE_LOG"
+                            cd /workspace/third_party/vlmaps
+                            python "$APP/interactive_object_nav.py" \
+                                data_paths="$DATA_PATHS" scene_id="$scene" $NAV_EXTRA \
+                                < "$QUERY_FILE" | tee "$BASELINE_LOG"
+
+                            echo ""
+                            echo "► Running executor..."
+                            echo "  Log: $EXECUTOR_LOG"
+                            python "$APP/interactive_object_nav_executor.py" \
+                                data_paths="$DATA_PATHS" scene_id="$scene" $NAV_EXTRA \
+                                < "$QUERY_FILE" | tee "$EXECUTOR_LOG"
+
+                            echo ""
+                            echo "► Building comparison summary..."
+                            cd /workspace
+                            python tools/compare_nav_runs.py \
+                                --baseline-log "$BASELINE_LOG" \
+                                --executor-log "$EXECUTOR_LOG" \
+                                --out-csv "$SUMMARY_CSV" \
+                                --out-md "$SUMMARY_MD"
+
+                            echo ""
+                            echo "  Queries:       $QUERY_FILE"
+                            echo "  Baseline log:  $BASELINE_LOG"
+                            echo "  Executor log:  $EXECUTOR_LOG"
+                            echo "  Summary CSV:   $SUMMARY_CSV"
+                            echo "  Summary MD:    $SUMMARY_MD"
                         fi
                         ;;
                     p|P)
