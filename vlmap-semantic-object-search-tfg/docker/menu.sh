@@ -144,6 +144,7 @@ while true; do
                 echo "  │  e) Interactive executor navigation             │"
                 echo "  │  t) Test — batch nav (auto queries)             │"
                 echo "  │  v) Compare — baseline vs executor              │"
+                echo "  │  y) Generate eval query JSONL                   │"
                 echo "  │  p) Test — Phase F policy unit tests            │"
                 echo "  │  u) Test — Phase G strategic policy tests       │"
                 echo "  │  g) Generate obstacle map image                 │"
@@ -529,6 +530,39 @@ while true; do
                             echo "  Executor log:  $EXECUTOR_LOG"
                             echo "  Summary CSV:   $SUMMARY_CSV"
                             echo "  Summary MD:    $SUMMARY_MD"
+                        fi
+                        ;;
+                    y|Y)
+                        echo ""
+                        if [ "$DATASET_TYPE" != "hssd" ]; then
+                            echo "  Eval query JSONL generation is currently HSSD-only."
+                            echo "  Switch to HSSD from the dataset menu."
+                        else
+                            echo "► Generating normalized evaluation query JSONL..."
+                            echo "  Output: /workspace/tools/eval_queries/{scene_name}.jsonl"
+                            echo ""
+                            echo -n "  Scene ids comma-separated (default 0,1): "
+                            read -r eval_scene_ids
+                            eval_scene_ids=${eval_scene_ids:-0,1}
+                            echo -n "  Queries per scene (default 50): "
+                            read -r eval_qps
+                            eval_qps=${eval_qps:-50}
+                            echo -n "  Min navigable room ratio (default 0.25): "
+                            read -r eval_min_nav
+                            eval_min_nav=${eval_min_nav:-0.25}
+                            echo -n "  Seed (default 21042026): "
+                            read -r eval_seed
+                            eval_seed=${eval_seed:-21042026}
+                            echo ""
+                            cd /workspace
+                            python tools/build_eval_queries.py \
+                                --scene-ids "$eval_scene_ids" \
+                                --queries-per-scene "$eval_qps" \
+                                --dataset-type "$DATASET_TYPE" \
+                                --data-paths "$DATA_PATHS" \
+                                --scene-dataset-config-file "$HSSD_CFG" \
+                                --min-room-navigable "$eval_min_nav" \
+                                --seed "$eval_seed"
                         fi
                         ;;
                     p|P)

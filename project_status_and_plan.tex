@@ -1072,14 +1072,54 @@ siguiente) puede acometerse sustituyendo \emph{solo} las capas de
 percepción, navegación y ejecución, sin tocar la capa de decisión, que
 ya está validada en simulación.
 
-\textbf{Estado actual}: \textcolor{partialcol}{tooling listo, comparativa
-sistemática pendiente}. El repositorio ya incluye un \emph{runner} batch
-(\texttt{tools/run\_hssd\_nav\_compare.sh}) que ejecuta el mismo lote de
-\emph{queries} contra el baseline y el executor, y un resumidor
-(\texttt{tools/compare\_nav\_runs.py}) que genera CSV + markdown con la
-comparación query-a-query. El trabajo restante se centra en usar esa
-infraestructura sobre escenas representativas, recoger métricas y documentar
-las diferencias cualitativas de heatmap y trayectoria.
+\textbf{Estado actual} (21.04, segunda iteración):
+\textcolor{partialcol}{ambas baterías de evaluación operativas; falta lanzarlas
+sobre escenas representativas y consolidar las métricas}. La infraestructura
+queda dividida en dos pistas independientes que se pueden ejecutar por separado
+o en cadena:
+\begin{itemize}
+  \item \textbf{Generador de \emph{queries} compartido}.
+        \texttt{tools/build\_eval\_queries.py} produce \emph{batches} en
+        formato JSONL bajo \texttt{tools/eval\_queries/\{scene\}.jsonl}
+        (50~queries por escena, 4 tipos: \texttt{object}, \texttt{room},
+        \texttt{room\_object}, \texttt{compound}). Cada entrada lleva
+        \texttt{id}, \texttt{target\_label}, \texttt{expected\_rooms} y
+        \texttt{expected\_room\_polygons} (referencia exacta a polígonos
+        del \texttt{semantic\_config.json} para \emph{ground truth}
+        espacial). Ese mismo fichero alimenta los dos comparadores.
+  \item \textbf{Eje 1 --- comparador de orquestador (end-to-end)}.
+        \texttt{tools/run\_nav\_eval.py} canaliza el JSONL como
+        \texttt{stdin} hacia \texttt{interactive\_object\_nav.py} o
+        \texttt{interactive\_object\_nav\_executor.py}, captura el
+        \emph{log} y lo segmenta por el prompt
+        \texttt{Enter navigation instruction}, escribiendo
+        \texttt{segments/\{id\}.log} y un \texttt{manifest.json} que
+        asocia cada segmento al \emph{id} de la \emph{query} original.
+        \texttt{tools/compare\_nav\_runs.py} acepta dos manifiestos
+        (\texttt{--baseline-manifest}, \texttt{--executor-manifest}) y
+        produce CSV + Markdown alineados por \emph{id}, no por orden,
+        para que las filas correspondan exactamente a la misma
+        \emph{query} en ambos entrypoints.
+  \item \textbf{Eje 2 --- comparador de heatmaps (raw vs.\ procesado)}.
+        \texttt{tools/eval\_heatmap\_postprocess.py} carga la escena sin
+        sim, recorre el mismo JSONL y, para cada \emph{query}, calcula
+        el \emph{heatmap} crudo (CLIP + proyección 2D + decay) y el
+        \emph{heatmap} tras \texttt{postprocess\_heatmap}. Reporta por
+        cada versión: \texttt{Hit@1/3/5} (¿la celda top-K cae en la
+        habitación esperada?), \texttt{mass\_in\_expected\_ratio},
+        \texttt{IoU\_topmass50}, \texttt{wrong\_room\_mass\_ratio} y
+        \texttt{n\_components}, generando \texttt{per\_query.csv},
+        \texttt{summary.md} con conteo de victorias por métrica
+        (higher-/lower-better) y, opcionalmente
+        (\texttt{--save-images}), PNGs lado a lado con el polígono
+        objetivo dibujado en verde sobre el \emph{obstacle map}.
+\end{itemize}
+Como ambos comparadores comparten el campo \texttt{id} y \texttt{scene\_id}
+del JSONL, los resultados se pueden cruzar a posteriori para responder
+preguntas del tipo \emph{«¿las queries que el orquestador falla son las que
+ya tenían un Hit@1 raw bajo, o son fallos genuinos del executor?»}. El
+trabajo restante se reduce a lanzar las baterías sobre las escenas HSSD
+disponibles, exportar las gráficas y comentar resultados.
 
 % =============================================================================
 \section{Extensión futura: ROS\,1 Noetic + Toyota HSR}
