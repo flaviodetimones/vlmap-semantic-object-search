@@ -142,6 +142,7 @@ while true; do
                 echo "  │  i) Index map             (scene_id required)   │"
                 echo "  │  l) Interactive LLM navigation       [default]  │"
                 echo "  │  t) Test — batch nav (auto queries)             │"
+                echo "  │  p) Test — Phase F policy unit tests            │"
                 echo "  │  g) Generate obstacle map image                 │"
                 if [ "$DATASET_TYPE" = "mp3d" ]; then
                 echo "  │  n) Label rooms (LabelMe → room_map)            │"
@@ -402,6 +403,19 @@ while true; do
                             echo "  Queries: $QUERY_FILE"
                             echo "  Log:     $LOG_FILE"
                         fi
+                        ;;
+                    p|P)
+                        echo ""
+                        echo "► Running Phase F policy unit tests..."
+                        echo "  These tests do not need Habitat, GPU or a scene."
+                        echo "  They validate:"
+                        echo "    - Action dataclass validation"
+                        echo "    - JSON round-trip for all action types"
+                        echo "    - SearchState action log / visited trail"
+                        echo "    - find_frontier_in_room() on synthetic maps"
+                        echo ""
+                        cd /workspace/third_party/vlmaps
+                        python -m pytest tests/test_phase_f_actions.py -v
                         ;;
                     g|G)
                         echo ""

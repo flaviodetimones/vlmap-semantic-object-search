@@ -1626,4 +1626,42 @@ disponibilidad del robot HSR en el laboratorio V4R del TU Wien.
 
 \end{enumerate}
 
+% =============================================================================
+\subsection*{21 de abril de 2026}
+% =============================================================================
+
+\begin{enumerate}
+
+  \item \textbf{Fase F consolidada y accesible para validación manual}: se da
+        por cerrada la capa de acciones de alto nivel introducida el día
+        anterior y se revisa explícitamente su alcance real. La implementación
+        no modifica todavía el comportamiento \emph{runtime} del robot dentro
+        de \texttt{interactive\_object\_nav.py}; su función es preparar la
+        transición desde una política \emph{inline} a una política explícita y
+        tipada. Quedan definidos cinco tipos de acción
+        (\texttt{go\_to\_room}, \texttt{explore\_room},
+        \texttt{inspect\_candidate}, \texttt{verify\_target} y
+        \texttt{done}), su validación estructural, su serialización JSON para
+        la futura capa LLM y un selector de \emph{frontier} intra-habitación
+        para \texttt{explore\_room}. En paralelo, \texttt{SearchState} amplía
+        su papel como memoria del episodio con un registro ordenado de acciones
+        y un rastro de celdas visitadas, que servirán como base del ejecutor de
+        la siguiente fase.
+
+  \item \textbf{Pruebas unitarias y acceso desde el menú del contenedor}: para
+        que la validación de Fase~F no dependa de Habitat, de la GPU ni de una
+        escena concreta, se mantiene una suite \texttt{pytest} autocontenida
+        (\texttt{tests/test\_phase\_f\_actions.py}) y, además, se expone su
+        ejecución desde el menú interactivo del contenedor mediante una nueva
+        opción \texttt{p}. Esta entrada lanza la batería de pruebas de la capa
+        de política y muestra de forma inmediata si la representación de
+        acciones, el \textit{round-trip} JSON, el registro extendido de
+        \texttt{SearchState} y el \textit{frontier picker} siguen siendo
+        consistentes. El objetivo aquí no es medir navegación real, sino
+        garantizar que la interfaz de alto nivel sobre la que se montará la
+        siguiente fase permanece estable antes de conectarla al pipeline
+        operativo.
+
+\end{enumerate}
+
 \end{document}
