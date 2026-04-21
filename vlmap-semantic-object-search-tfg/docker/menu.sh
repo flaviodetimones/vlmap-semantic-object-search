@@ -141,6 +141,7 @@ while true; do
                 echo "  │  m) Create VLMap          (scene_id required)   │"
                 echo "  │  i) Index map             (scene_id required)   │"
                 echo "  │  l) Interactive LLM navigation       [default]  │"
+                echo "  │  e) Interactive executor navigation             │"
                 echo "  │  t) Test — batch nav (auto queries)             │"
                 echo "  │  p) Test — Phase F policy unit tests            │"
                 echo "  │  g) Generate obstacle map image                 │"
@@ -180,6 +181,12 @@ while true; do
                         echo "    python $APP/interactive_object_nav.py data_paths=hssd scene_id=0 \\"
                         echo "        dataset_type=hssd \\"
                         echo "        scene_dataset_config_file=$HSSD_CFG"
+                        echo ""
+                        echo "  ── Step 4 · Interactive executor navigation ────────────────"
+                        echo ""
+                        echo "    python $APP/interactive_object_nav_executor.py data_paths=hssd scene_id=0 \\"
+                        echo "        dataset_type=hssd \\"
+                        echo "        scene_dataset_config_file=$HSSD_CFG"
                         else
                         echo "  All scripts use Hydra. Run them from inside the container."
                         echo "  data_paths=docker uses /workspace/data paths."
@@ -200,6 +207,10 @@ while true; do
                         echo "  ── Step 3 · Interactive LLM navigation ──────────────────────"
                         echo ""
                         echo "    python $APP/interactive_object_nav.py data_paths=docker scene_id=0"
+                        echo ""
+                        echo "  ── Step 4 · Interactive executor navigation ────────────────"
+                        echo ""
+                        echo "    python $APP/interactive_object_nav_executor.py data_paths=docker scene_id=0"
                         fi
                         echo ""
                         echo "════════════════════════════════════════════════════════════════"
@@ -350,6 +361,35 @@ while true; do
                         echo ""
                         cd /workspace/third_party/vlmaps
                         python "$APP/interactive_object_nav.py" \
+                            data_paths="$DATA_PATHS" scene_id="$scene" $NAV_EXTRA
+                        ;;
+                    e|E)
+                        echo ""
+                        if [ -z "$OPENAI_API_KEY" ]; then
+                            echo "  WARNING: OPENAI_API_KEY is not set. The script will fail."
+                            echo "  Set it with: export OPENAI_API_KEY=sk-..."
+                        fi
+                        echo "  Available scenes [$DS_LABEL]:"
+                        echo "  ─────────────────────────────────────────────────"
+                        if [ -d "$SCENES_DIR" ]; then
+                            i=0
+                            while IFS= read -r dir; do
+                                echo "    scene_id=$i  →  $(basename "$dir")"
+                                i=$((i+1))
+                            done < <(find "$SCENES_DIR" -mindepth 1 -maxdepth 1 -type d | sort)
+                        else
+                            echo "    (data directory not found)"
+                        fi
+                        echo ""
+                        echo -n "  scene_id to use (default 0): "
+                        read -r scene
+                        scene=${scene:-0}
+                        echo ""
+                        echo "► Launching interactive executor navigation (scene $scene)  [$DS_LABEL]..."
+                        echo "  Type instructions at the prompt. Type 'quit' to stop."
+                        echo ""
+                        cd /workspace/third_party/vlmaps
+                        python "$APP/interactive_object_nav_executor.py" \
                             data_paths="$DATA_PATHS" scene_id="$scene" $NAV_EXTRA
                         ;;
                     t|T)

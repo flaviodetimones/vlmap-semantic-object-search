@@ -406,6 +406,7 @@ Fase F: acciones de alto nivel & \textcolor{done}{Completado} \\
 Fase G: LLM estratégico con estado & \textcolor{pendingcol}{Pendiente} \\
 Fase H: métricas room-aware & \textcolor{pendingcol}{Pendiente} \\
 \midrule
+Apartado extra: baseline vs.\ executor & \textcolor{partialcol}{Parcial} \\
 Baselines M1, M3 & \textcolor{partialcol}{Posterior} \\
 Evaluación cuantitativa amplia & \textcolor{partialcol}{Posterior} \\
 Inserción extensiva de objetos pequeños & \textcolor{partialcol}{Posterior} \\
@@ -826,6 +827,11 @@ habitaciones exploradas, los candidatos probados y el motivo de fallo
 (no~detectado, heatmap débil, navegación fallida). Esto evita inflar el
 prompt y mantiene el coste y la latencia bajo control.
 
+El detalle de cómo se integra esa decisión en el sistema sin tocar el
+pipeline actual --- entrypoint nuevo, ejecutor de acciones y comparación
+de heatmaps --- queda recogido en el
+\hyperref[sec:apartado-extra]{apartado extra} previo a la migración a ROS.
+
 \textbf{Esfuerzo estimado}: 2 sesiones.
 
 \subsection{Fase H --- Métricas que demuestran la hipótesis}
@@ -954,6 +960,106 @@ proyecto: para encontrar una taza, el robot tiene que razonar que vive
 típicamente en la cocina, sobre encimeras o mesas, y verificar visualmente
 con YOLOE. Un sistema sin los tres niveles falla por construcción en este
 escenario.
+
+% =============================================================================
+\section{Apartado extra: comparación baseline vs.\ executor}
+\label{sec:apartado-extra}
+% =============================================================================
+
+A fecha 21.04 existe ya una \textbf{primera implementación funcional} del
+\emph{executor} y de un \emph{entrypoint} alternativo, pero el apartado sigue
+\textbf{parcial}: falta la comparación sistemática con métricas y el informe
+lado a lado frente al baseline. Su objetivo no es
+añadir capacidades nuevas, sino \textbf{poder comparar de forma controlada
+la política \emph{inline} actual contra la nueva política basada en
+acciones tipadas}, una vez ambas están funcionando. Se aborda únicamente
+cuando todo el pipeline room-aware (Fases F y G) y las métricas (Fase H)
+estén operativos.
+
+\subsection*{Motivación}
+
+\texttt{interactive\_object\_nav.py} acumula $\approx$2500 líneas de
+lógica \emph{inline} validada contra el simulador. Reescribir ese fichero
+para introducir la nueva política sería un riesgo de regresión enorme y
+haría imposible comparar versiones. La estrategia es la opuesta:
+\textbf{no se toca el baseline}. Se crea una pista paralela que reutiliza
+las mismas primitivas de bajo nivel y solo cambia la orquestación.
+
+\subsection*{Estructura propuesta}
+
+\begin{itemize}
+  \item \texttt{application/interactive\_object\_nav.py} --- se queda como
+        \textbf{baseline} estable. Mismo arranque, mismo \emph{setup},
+        misma UI, mismo bucle \emph{inline} actual.
+  \item \texttt{application/interactive\_object\_nav\_executor.py} ---
+        \textbf{entrypoint nuevo}. Reutiliza el arranque, el \emph{setup}
+        y la UI del baseline, pero su bucle principal pasa por
+        \texttt{choose\_next\_action()} $\rightarrow$
+        \texttt{execute\_action(...)}. No duplica primitivas. Su primera
+        versión ya está implementada y expuesta en el menú interactivo del
+        contenedor.
+  \item \texttt{vlmaps/policy/executor.py} --- \textbf{módulo nuevo}.
+        Implementa \texttt{execute\_action(robot, action, context, ...)} y
+        despacha cada \texttt{Action} sobre las primitivas existentes:
+        \texttt{go\_to\_room} $\rightarrow$ navegación a \emph{room goal};
+        \texttt{explore\_room} $\rightarrow$ \textit{frontier picker} de
+        Fase~F; \texttt{inspect\_candidate} $\rightarrow$ selección de
+        candidato + \emph{approach goal}; \texttt{verify\_target}
+        $\rightarrow$ YOLOE + scan~$360^\circ$ + centrado visual;
+        \texttt{done} $\rightarrow$ cierre con \emph{overlays}.
+  \item Lo que ya funciona (parser de instrucción, heatmap, selección de
+        candidato, navegación a \emph{room goal}, \emph{approach goal},
+        YOLOE, scan~$360^\circ$, centrado visual, \textit{overlays}) se
+        \textbf{reutiliza tal cual}; el ejecutor solo lo invoca con otro
+        orden y otra política de selección.
+  \item Más adelante, el LLM se conecta únicamente como productor de
+        \texttt{Action} JSON dentro de \texttt{choose\_next\_action()},
+        con la heurística de Fase~D como \emph{fallback}. Nada se vuelve
+        monolítico.
+\end{itemize}
+
+\subsection*{Qué se compara}
+
+Tener los dos entrypoints conviviendo permite dos ejes de comparación:
+
+\begin{enumerate}
+  \item \textbf{Comportamiento end-to-end}: las mismas \emph{queries} de
+        \texttt{tools/nav\_batch\_queries.py} se ejecutan contra
+        \texttt{interactive\_object\_nav.py} y contra
+        \texttt{interactive\_object\_nav\_executor.py}. Las métricas de
+        Fase~H (SR, SPL, Wrong~Visits, Time~to~Find, CFR, CT2R, Rooms
+        Before Success, Inspections Before Success) se reportan en
+        paralelo para ambos.
+  \item \textbf{Heatmap baseline vs.\ procesado}: para cada \emph{query},
+        se vuelca tanto el heatmap producido por
+        \texttt{compute\_heatmap}~+\,\texttt{postprocess\_heatmap}
+        (versión \emph{flat}) como el heatmap \emph{room-aware}
+        resultante de filtrar por la habitación elegida por la política
+        de Fase~D y reordenar los componentes por la política
+        intra-habitación de Fase~E. La comparación visual y cuantitativa
+        de ambos mapas es lo que demuestra que la decisión semántica
+        está aportando valor antes incluso de mirar el SR final.
+\end{enumerate}
+
+\subsection*{Criterio de cierre}
+
+El apartado se da por cerrado cuando:
+(i)~el baseline sigue funcionando sin regresiones tras introducir el
+ejecutor;
+(ii)~existe un informe lado a lado de los dos entrypoints sobre el mismo
+conjunto de \emph{queries};
+(iii)~se publican las imágenes del heatmap baseline y del heatmap
+procesado para al menos una escena HSSD representativa.
+
+A partir de ahí, la migración a ROS\,1\,/\,Toyota HSR (sección
+siguiente) puede acometerse sustituyendo \emph{solo} las capas de
+percepción, navegación y ejecución, sin tocar la capa de decisión, que
+ya está validada en simulación.
+
+\textbf{Estado actual}: \textcolor{partialcol}{implementación inicial lista,
+comparativa pendiente}. El trabajo restante se centra en lanzar ambos
+entrypoints sobre el mismo lote de \emph{queries}, recoger métricas y
+documentar las diferencias cualitativas de heatmap y trayectoria.
 
 % =============================================================================
 \section{Extensión futura: ROS\,1 Noetic + Toyota HSR}
@@ -1661,6 +1767,55 @@ disponibilidad del robot HSR en el laboratorio V4R del TU Wien.
         garantizar que la interfaz de alto nivel sobre la que se montará la
         siguiente fase permanece estable antes de conectarla al pipeline
         operativo.
+
+  \item \textbf{Corrección del lanzador de \textit{batch testing}}: al ejecutar
+        la opción \texttt{t} del menú con dataset HSSD, el script
+        \texttt{tools/nav\_batch\_queries.py} fallaba con
+        \texttt{TypeError: string indices must be integers} en
+        \texttt{HabitatLanguageRobot.\_\_init\_\_}. La causa era que el script
+        cargaba la configuración con \texttt{OmegaConf.load}, que no resuelve
+        la lista \texttt{defaults} de Hydra: el campo \texttt{data\_paths}
+        quedaba como la cadena literal \texttt{"default"} en lugar del
+        diccionario con \texttt{habitat\_scene\_dir}/\texttt{vlmaps\_data\_dir}.
+        Se sustituye la carga manual por \texttt{hydra.compose} con
+        \texttt{initialize\_config\_dir}, pasando los \emph{overrides}
+        (\texttt{scene\_id}, \texttt{dataset\_type},
+        \texttt{scene\_dataset\_config\_file}, \texttt{data\_paths}) por la
+        vía oficial de Hydra. Tras el arreglo, el script genera
+        \texttt{queries.txt} correctamente y el batch llega a lanzar
+        \texttt{interactive\_object\_nav.py}. Queda registrado además que un
+        \texttt{scene\_id} fuera de rango (p.\,ej.\ teclear \texttt{11} cuando
+        solo existen \texttt{0} y \texttt{1}) provoca un \texttt{IndexError}
+        en \texttt{vlmaps\_data\_save\_dirs[scene\_id]}; es una limitación
+        de UX del menú, no un bug del pipeline, y se considerará añadir una
+        validación previa.
+
+  \item \textbf{Primer corte funcional del executor alternativo}: se materializa
+        por fin el apartado ``baseline vs.\ executor'' con una implementación
+        inicial real. Se mantiene \texttt{interactive\_object\_nav.py} como
+        \emph{baseline} intacto y, en paralelo, se añade
+        \texttt{application/interactive\_object\_nav\_executor.py} como nuevo
+        entrypoint junto con \texttt{vlmaps/policy/executor.py}. El nuevo
+        módulo define un \texttt{ExecutorContext} y un despachador
+        \texttt{execute\_action(...)} que traduce las acciones tipadas de
+        Fase~F (\texttt{go\_to\_room}, \texttt{explore\_room},
+        \texttt{inspect\_candidate}, \texttt{verify\_target},
+        \texttt{done}) a comportamiento real reutilizando las primitivas ya
+        validadas del baseline: \textit{room staging}, generación de
+        \emph{approach goals}, \textit{path replay follower}, chequeos YOLOE
+        en llegada y tras giro, \textit{scan}~$360^\circ$ y centrado visual.
+        La política de alto nivel se mantiene coherente con el estado del
+        proyecto: si la query es una habitación, se genera
+        \texttt{go\_to\_room} $\rightarrow$ \texttt{done}; si es un mueble
+        directo presente en la escena, se mantiene \textit{nearest-first}
+        sin selector de habitación; y para consultas ambiguas o indirectas se
+        conserva el flujo jerárquico ``habitación primero, candidato después''.
+        Además, el menú del contenedor incorpora una nueva opción
+        \texttt{e) Interactive executor navigation}, que permite lanzar esta
+        variante sin tocar comandos manuales. La parte \emph{pendiente} ya no
+        es construir el ejecutor, sino compararlo sistemáticamente frente al
+        baseline con las métricas de Fase~H y con volcados lado a lado del
+        heatmap baseline y del heatmap procesado \emph{room-aware}.
 
 \end{enumerate}
 
