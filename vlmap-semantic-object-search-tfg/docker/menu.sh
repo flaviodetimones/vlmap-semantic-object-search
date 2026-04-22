@@ -79,6 +79,240 @@ if torch.cuda.is_available():
     done
 }
 
+print_scene_list() {
+    if [ -d "$SCENES_DIR" ]; then
+        i=0
+        while IFS= read -r dir; do
+            echo "    scene_id=$i  →  $(basename "$dir")"
+            i=$((i+1))
+        done < <(find "$SCENES_DIR" -mindepth 1 -maxdepth 1 -type d | sort)
+        if [ "$i" -eq 0 ]; then
+            echo "    (no scene folders found in $SCENES_DIR)"
+        fi
+    else
+        echo "    Directory not found: $SCENES_DIR"
+    fi
+}
+
+scene_name_from_id() {
+    local scene_id="$1"
+    if [ ! -d "$SCENES_DIR" ]; then
+        return 1
+    fi
+    find "$SCENES_DIR" -mindepth 1 -maxdepth 1 -type d | sort | sed -n "$((scene_id + 1))p" | xargs -r basename
+}
+
+scene_count() {
+    if [ ! -d "$SCENES_DIR" ]; then
+        echo 0
+        return
+    fi
+    find "$SCENES_DIR" -mindepth 1 -maxdepth 1 -type d | sort | wc -l
+}
+
+prompt_valid_scene_id() {
+    local prompt_text="$1"
+    local default_scene="$2"
+    local count
+    local max_scene
+    local scene
+
+    count=$(scene_count)
+    if [ "$count" -le 0 ]; then
+        echo "  No scenes available in $SCENES_DIR."
+        return 1
+    fi
+
+    max_scene=$((count - 1))
+    if [ "$default_scene" -gt "$max_scene" ]; then
+        default_scene=0
+    fi
+
+    while true; do
+        echo -n "  $prompt_text (default $default_scene): "
+        read -r scene
+        scene=${scene:-$default_scene}
+        if [[ "$scene" =~ ^[0-9]+$ ]] && [ "$scene" -ge 0 ] && [ "$scene" -lt "$count" ]; then
+            SELECTED_SCENE_ID="$scene"
+            return 0
+        fi
+        echo "  Invalid scene_id '$scene'. Valid range: 0-$max_scene."
+    done
+}
+
+run_testing_menu() {
+    while true; do
+        echo ""
+        echo "  ┌─────────────────────────────────────────────────┐"
+        echo "  │         Testing / Evaluation  [$DS_LABEL]$([ "$DS_LABEL" = "MP3D" ] && echo "           " || echo "          ")│"
+        echo "  ├─────────────────────────────────────────────────┤"
+        echo "  │  1) Generate test set                           │"
+        echo "  │  2) Compare full 2x2 pipeline                   │"
+        echo "  │  3) Heatmap-only offline analysis               │"
+        echo "  │  b) Back                                        │"
+        echo "  └─────────────────────────────────────────────────┘"
+        echo -n "  Select: "
+        read -r test_opt
+
+        case "$test_opt" in
+            1)
+                echo ""
+                if [ "$DATASET_TYPE" != "hssd" ]; then
+                    echo "  Test set generation is currently HSSD-only."
+                    echo "  Switch to HSSD from the dataset menu."
+                else
+                    echo "  Available scenes [$DS_LABEL]:"
+                    echo "  ─────────────────────────────────────────────────"
+                    print_scene_list
+                    echo ""
+                    echo -n "  Scene ids comma-separated (default 0,1): "
+                    read -r eval_scene_ids
+                    eval_scene_ids=${eval_scene_ids:-0,1}
+                    echo -n "  Queries per scene (default 50): "
+                    read -r eval_qps
+                    eval_qps=${eval_qps:-50}
+                    echo -n "  Min navigable room ratio (default 0.25): "
+                    read -r eval_min_nav
+                    eval_min_nav=${eval_min_nav:-0.25}
+                    echo -n "  Seed (default 21042026): "
+                    read -r eval_seed
+                    eval_seed=${eval_seed:-21042026}
+                    echo ""
+                    echo "► Generating normalized evaluation query JSONL..."
+                    echo "  Output: /workspace/tools/eval_queries/{scene_name}.jsonl"
+                    cd /workspace
+                    python tools/build_eval_queries.py \
+                        --scene-ids "$eval_scene_ids" \
+                        --queries-per-scene "$eval_qps" \
+                        --dataset-type "$DATASET_TYPE" \
+                        --data-paths "$DATA_PATHS" \
+                        --scene-dataset-config-file "$HSSD_CFG" \
+                        --min-room-navigable "$eval_min_nav" \
+                        --seed "$eval_seed"
+                fi
+                ;;
+            2)
+                echo ""
+                if [ "$DATASET_TYPE" != "hssd" ]; then
+                    echo "  Full 2x2 comparison is currently HSSD-only."
+                    echo "  Switch to HSSD from the dataset menu."
+                elif [ -z "$OPENAI_API_KEY" ]; then
+                    echo "  WARNING: OPENAI_API_KEY is not set. Set it before running the 2x2 comparison."
+                else
+                    echo "  Available scenes [$DS_LABEL]:"
+                    echo "  ─────────────────────────────────────────────────"
+                    print_scene_list
+                    echo ""
+                    echo -n "  Scene ids comma-separated (default 0): "
+                    read -r scene_ids
+                    scene_ids=${scene_ids:-0}
+                    echo -n "  Queries path or directory (blank = default eval_queries): "
+                    read -r eval_queries
+                    echo -n "  Executor policy mode [heuristic|hybrid|llm] (default hybrid): "
+                    read -r policy_mode
+                    policy_mode=${policy_mode:-hybrid}
+                    STAMP=$(date +%Y%m%d_%H%M%S)
+                    OUT_DIR="/workspace/results/eval_runs/${STAMP}"
+                    echo ""
+                    echo "► Running full 2x2 pipeline evaluation..."
+                    echo "  Output root: $OUT_DIR"
+                    cd /workspace
+                    if [ -n "$eval_queries" ]; then
+                        python tools/run_full_2x2_eval.py \
+                            --scene-ids "$scene_ids" \
+                            --queries "$eval_queries" \
+                            --dataset-type "$DATASET_TYPE" \
+                            --data-paths "$DATA_PATHS" \
+                            --scene-dataset-config-file "$HSSD_CFG" \
+                            --policy-mode "$policy_mode" \
+                            --out "$OUT_DIR"
+                    else
+                        python tools/run_full_2x2_eval.py \
+                            --scene-ids "$scene_ids" \
+                            --dataset-type "$DATASET_TYPE" \
+                            --data-paths "$DATA_PATHS" \
+                            --scene-dataset-config-file "$HSSD_CFG" \
+                            --policy-mode "$policy_mode" \
+                            --out "$OUT_DIR"
+                    fi
+                    echo ""
+                    echo "  Results root:  $OUT_DIR"
+                fi
+                ;;
+            3)
+                echo ""
+                if [ "$DATASET_TYPE" != "hssd" ]; then
+                    echo "  Heatmap-only offline analysis is currently HSSD-only."
+                    echo "  Switch to HSSD from the dataset menu."
+                else
+                    echo "  Available scenes [$DS_LABEL]:"
+                    echo "  ─────────────────────────────────────────────────"
+                    print_scene_list
+                    echo ""
+                    echo -n "  Scene ids comma-separated (default 0): "
+                    read -r scene_ids
+                    scene_ids=${scene_ids:-0}
+                    echo -n "  Queries path or directory (blank = default eval_queries): "
+                    read -r heat_queries
+                    echo -n "  Save overlay images? [y/N]: "
+                    read -r save_imgs
+                    STAMP=$(date +%Y%m%d_%H%M%S)
+                    OUT_DIR="/workspace/results/eval_runs/${STAMP}"
+                    echo ""
+                    echo "► Running heatmap-only offline analysis..."
+                    echo "  Output root: $OUT_DIR"
+                    cd /workspace
+                    if [[ "$save_imgs" =~ ^[Yy]$ ]]; then
+                        if [ -n "$heat_queries" ]; then
+                            python tools/run_heatmap_offline_eval.py \
+                                --scene-ids "$scene_ids" \
+                                --queries "$heat_queries" \
+                                --dataset-type "$DATASET_TYPE" \
+                                --data-paths "$DATA_PATHS" \
+                                --scene-dataset-config-file "$HSSD_CFG" \
+                                --save-images \
+                                --out "$OUT_DIR"
+                        else
+                            python tools/run_heatmap_offline_eval.py \
+                                --scene-ids "$scene_ids" \
+                                --dataset-type "$DATASET_TYPE" \
+                                --data-paths "$DATA_PATHS" \
+                                --scene-dataset-config-file "$HSSD_CFG" \
+                                --save-images \
+                                --out "$OUT_DIR"
+                        fi
+                    else
+                        if [ -n "$heat_queries" ]; then
+                            python tools/run_heatmap_offline_eval.py \
+                                --scene-ids "$scene_ids" \
+                                --queries "$heat_queries" \
+                                --dataset-type "$DATASET_TYPE" \
+                                --data-paths "$DATA_PATHS" \
+                                --scene-dataset-config-file "$HSSD_CFG" \
+                                --out "$OUT_DIR"
+                        else
+                            python tools/run_heatmap_offline_eval.py \
+                                --scene-ids "$scene_ids" \
+                                --dataset-type "$DATASET_TYPE" \
+                                --data-paths "$DATA_PATHS" \
+                                --scene-dataset-config-file "$HSSD_CFG" \
+                                --out "$OUT_DIR"
+                        fi
+                    fi
+                    echo ""
+                    echo "  Results root:  $OUT_DIR"
+                fi
+                ;;
+            b|B)
+                break
+                ;;
+            *)
+                echo "  Invalid option."
+                ;;
+        esac
+    done
+}
+
 while true; do
     echo ""
     echo "┌─────────────────────────────────────────────────────┐"
@@ -142,11 +376,7 @@ while true; do
                 echo "  │  i) Index map             (scene_id required)   │"
                 echo "  │  l) Interactive LLM navigation       [default]  │"
                 echo "  │  e) Interactive executor navigation             │"
-                echo "  │  t) Test — batch nav (auto queries)             │"
-                echo "  │  v) Compare — baseline vs executor              │"
-                echo "  │  y) Generate eval query JSONL                   │"
-                echo "  │  p) Test — Phase F policy unit tests            │"
-                echo "  │  u) Test — Phase G strategic policy tests       │"
+                echo "  │  t) Testing / evaluation submenu                │"
                 echo "  │  g) Generate obstacle map image                 │"
                 if [ "$DATASET_TYPE" = "mp3d" ]; then
                 echo "  │  n) Label rooms (LabelMe → room_map)            │"
@@ -193,10 +423,16 @@ while true; do
                         echo "    # Optional policy mode:"
                         echo "    VLMAPS_POLICY_MODE=hybrid   # or heuristic / llm"
                         echo ""
-                        echo "  ── Step 5 · Compare baseline vs executor ───────────────────"
+                        echo "  ── Step 5 · Testing / evaluation workflows ─────────────────"
                         echo ""
-                        echo "    # From host:"
-                        echo "    bash /home/mario/tfg/vlmap-semantic-object-search-tfg/tools/run_hssd_nav_compare.sh 0 0.25"
+                        echo "    # Preferred path: use menu option 't' and choose one of:"
+                        echo "    #   1) Generate test set"
+                        echo "    #   2) Compare full 2x2 pipeline"
+                        echo "    #   3) Heatmap-only offline analysis"
+                        echo ""
+                        echo "    # Direct runners from inside the container:"
+                        echo "    python /workspace/tools/run_full_2x2_eval.py --scene-ids 0 --out /workspace/results/eval_runs/demo"
+                        echo "    python /workspace/tools/run_heatmap_offline_eval.py --scene-ids 0 --out /workspace/results/eval_runs/demo"
                         else
                         echo "  All scripts use Hydra. Run them from inside the container."
                         echo "  data_paths=docker uses /workspace/data paths."
@@ -316,9 +552,10 @@ while true; do
                             echo "    (data directory not found)"
                         fi
                         echo ""
-                        echo -n "  scene_id to build (default 0): "
-                        read -r scene
-                        scene=${scene:-0}
+                        if ! prompt_valid_scene_id "scene_id to build" 0; then
+                            continue
+                        fi
+                        scene="$SELECTED_SCENE_ID"
                         echo ""
                         echo "► Building VLMap for scene_id=$scene  [$DS_LABEL]..."
                         cd /workspace/third_party/vlmaps
@@ -338,9 +575,10 @@ while true; do
                             echo "    (data directory not found)"
                         fi
                         echo ""
-                        echo -n "  scene_id to index (default 0): "
-                        read -r scene
-                        scene=${scene:-0}
+                        if ! prompt_valid_scene_id "scene_id to index" 0; then
+                            continue
+                        fi
+                        scene="$SELECTED_SCENE_ID"
                         echo ""
                         echo "► Indexing VLMap for scene_id=$scene  [$DS_LABEL]..."
                         cd /workspace/third_party/vlmaps
@@ -364,9 +602,10 @@ while true; do
                             echo "    (data directory not found)"
                         fi
                         echo ""
-                        echo -n "  scene_id to use (default 0): "
-                        read -r scene
-                        scene=${scene:-0}
+                        if ! prompt_valid_scene_id "scene_id to use" 0; then
+                            continue
+                        fi
+                        scene="$SELECTED_SCENE_ID"
                         echo ""
                         echo "► Launching interactive LLM navigation (scene $scene)  [$DS_LABEL]..."
                         echo "  Type instructions at the prompt. Type 'quit' to stop."
@@ -393,9 +632,10 @@ while true; do
                             echo "    (data directory not found)"
                         fi
                         echo ""
-                        echo -n "  scene_id to use (default 0): "
-                        read -r scene
-                        scene=${scene:-0}
+                        if ! prompt_valid_scene_id "scene_id to use" 0; then
+                            continue
+                        fi
+                        scene="$SELECTED_SCENE_ID"
                         echo -n "  policy mode [heuristic|hybrid|llm] (default hybrid): "
                         read -r policy_mode
                         policy_mode=${policy_mode:-hybrid}
@@ -408,191 +648,7 @@ while true; do
                             data_paths="$DATA_PATHS" scene_id="$scene" $NAV_EXTRA
                         ;;
                     t|T)
-                        echo ""
-                        if [ "$DATASET_TYPE" != "hssd" ]; then
-                            echo "  Batch test (auto queries) is currently HSSD-only."
-                            echo "  Switch to HSSD from the dataset menu."
-                        elif [ -z "$OPENAI_API_KEY" ]; then
-                            echo "  WARNING: OPENAI_API_KEY is not set. Set it before running tests."
-                        else
-                            echo "  Available scenes [$DS_LABEL]:"
-                            echo "  ─────────────────────────────────────────────────"
-                            if [ -d "$SCENES_DIR" ]; then
-                                i=0
-                                while IFS= read -r dir; do
-                                    echo "    scene_id=$i  →  $(basename "$dir")"
-                                    i=$((i+1))
-                                done < <(find "$SCENES_DIR" -mindepth 1 -maxdepth 1 -type d | sort)
-                            fi
-                            echo ""
-                            echo -n "  scene_id (default 1): "
-                            read -r scene
-                            scene=${scene:-1}
-                            echo -n "  Min navigable fraction per room (default 0.25): "
-                            read -r min_nav
-                            min_nav=${min_nav:-0.25}
-
-                            STAMP=$(date +%Y%m%d_%H%M%S)
-                            OUT_DIR="/workspace/results/nav_batch_${STAMP}"
-                            mkdir -p "$OUT_DIR"
-                            QUERY_FILE="$OUT_DIR/queries.txt"
-                            LOG_FILE="$OUT_DIR/interactive_nav.log"
-
-                            echo ""
-                            echo "► Generating queries → $QUERY_FILE"
-                            cd /workspace
-                            python tools/nav_batch_queries.py \
-                                --scene-id "$scene" \
-                                --min-room-navigable "$min_nav" > "$QUERY_FILE"
-                            printf 'quit\n' >> "$QUERY_FILE"
-
-                            echo "► Running interactive_object_nav with batched queries..."
-                            echo "  Log: $LOG_FILE"
-                            echo ""
-                            cd /workspace/third_party/vlmaps
-                            python "$APP/interactive_object_nav.py" \
-                                data_paths="$DATA_PATHS" scene_id="$scene" $NAV_EXTRA \
-                                < "$QUERY_FILE" | tee "$LOG_FILE"
-
-                            echo ""
-                            echo "  Queries: $QUERY_FILE"
-                            echo "  Log:     $LOG_FILE"
-                        fi
-                        ;;
-                    v|V)
-                        echo ""
-                        if [ "$DATASET_TYPE" != "hssd" ]; then
-                            echo "  Comparison batch is currently HSSD-only."
-                            echo "  Switch to HSSD from the dataset menu."
-                        elif [ -z "$OPENAI_API_KEY" ]; then
-                            echo "  WARNING: OPENAI_API_KEY is not set. Set it before running comparison."
-                        else
-                            echo "  Available scenes [$DS_LABEL]:"
-                            echo "  ─────────────────────────────────────────────────"
-                            if [ -d "$SCENES_DIR" ]; then
-                                i=0
-                                while IFS= read -r dir; do
-                                    echo "    scene_id=$i  →  $(basename "$dir")"
-                                    i=$((i+1))
-                                done < <(find "$SCENES_DIR" -mindepth 1 -maxdepth 1 -type d | sort)
-                            fi
-                            echo ""
-                            echo -n "  scene_id (default 1): "
-                            read -r scene
-                            scene=${scene:-1}
-                            echo -n "  Min navigable fraction per room (default 0.25): "
-                            read -r min_nav
-                            min_nav=${min_nav:-0.25}
-
-                            STAMP=$(date +%Y%m%d_%H%M%S)
-                            OUT_DIR="/workspace/results/nav_compare_${STAMP}"
-                            mkdir -p "$OUT_DIR"
-                            QUERY_FILE="$OUT_DIR/queries.txt"
-                            BASELINE_LOG="$OUT_DIR/baseline.log"
-                            EXECUTOR_LOG="$OUT_DIR/executor.log"
-                            SUMMARY_CSV="$OUT_DIR/summary.csv"
-                            SUMMARY_MD="$OUT_DIR/summary.md"
-
-                            echo ""
-                            echo "► Generating shared queries → $QUERY_FILE"
-                            cd /workspace
-                            python tools/nav_batch_queries.py \
-                                --scene-id "$scene" \
-                                --min-room-navigable "$min_nav" > "$QUERY_FILE"
-                            printf 'quit\n' >> "$QUERY_FILE"
-
-                            echo "► Running baseline..."
-                            echo "  Log: $BASELINE_LOG"
-                            cd /workspace/third_party/vlmaps
-                            python "$APP/interactive_object_nav.py" \
-                                data_paths="$DATA_PATHS" scene_id="$scene" $NAV_EXTRA \
-                                < "$QUERY_FILE" | tee "$BASELINE_LOG"
-
-                            echo ""
-                            echo "► Running executor..."
-                            echo "  Log: $EXECUTOR_LOG"
-                            python "$APP/interactive_object_nav_executor.py" \
-                                data_paths="$DATA_PATHS" scene_id="$scene" $NAV_EXTRA \
-                                < "$QUERY_FILE" | tee "$EXECUTOR_LOG"
-
-                            echo ""
-                            echo "► Building comparison summary..."
-                            cd /workspace
-                            python tools/compare_nav_runs.py \
-                                --baseline-log "$BASELINE_LOG" \
-                                --executor-log "$EXECUTOR_LOG" \
-                                --out-csv "$SUMMARY_CSV" \
-                                --out-md "$SUMMARY_MD"
-
-                            echo ""
-                            echo "  Queries:       $QUERY_FILE"
-                            echo "  Baseline log:  $BASELINE_LOG"
-                            echo "  Executor log:  $EXECUTOR_LOG"
-                            echo "  Summary CSV:   $SUMMARY_CSV"
-                            echo "  Summary MD:    $SUMMARY_MD"
-                        fi
-                        ;;
-                    y|Y)
-                        echo ""
-                        if [ "$DATASET_TYPE" != "hssd" ]; then
-                            echo "  Eval query JSONL generation is currently HSSD-only."
-                            echo "  Switch to HSSD from the dataset menu."
-                        else
-                            echo "► Generating normalized evaluation query JSONL..."
-                            echo "  Output: /workspace/tools/eval_queries/{scene_name}.jsonl"
-                            echo ""
-                            echo -n "  Scene ids comma-separated (default 0,1): "
-                            read -r eval_scene_ids
-                            eval_scene_ids=${eval_scene_ids:-0,1}
-                            echo -n "  Queries per scene (default 50): "
-                            read -r eval_qps
-                            eval_qps=${eval_qps:-50}
-                            echo -n "  Min navigable room ratio (default 0.25): "
-                            read -r eval_min_nav
-                            eval_min_nav=${eval_min_nav:-0.25}
-                            echo -n "  Seed (default 21042026): "
-                            read -r eval_seed
-                            eval_seed=${eval_seed:-21042026}
-                            echo ""
-                            cd /workspace
-                            python tools/build_eval_queries.py \
-                                --scene-ids "$eval_scene_ids" \
-                                --queries-per-scene "$eval_qps" \
-                                --dataset-type "$DATASET_TYPE" \
-                                --data-paths "$DATA_PATHS" \
-                                --scene-dataset-config-file "$HSSD_CFG" \
-                                --min-room-navigable "$eval_min_nav" \
-                                --seed "$eval_seed"
-                        fi
-                        ;;
-                    p|P)
-                        echo ""
-                        echo "► Running Phase F policy unit tests..."
-                        echo "  These tests do not need Habitat, GPU or a scene."
-                        echo "  They validate:"
-                        echo "    - Action dataclass validation"
-                        echo "    - JSON round-trip for all action types"
-                        echo "    - SearchState action log / visited trail"
-                        echo "    - find_frontier_in_room() on synthetic maps"
-                        echo ""
-                        cd /workspace/third_party/vlmaps
-                        python -m pytest tests/test_phase_f_actions.py -v
-                        ;;
-                    u|U)
-                        echo ""
-                        echo "► Running Phase G strategic policy tests..."
-                        echo "  These tests do not need Habitat, GPU or a scene."
-                        echo "  They validate:"
-                        echo "    - heuristic next-action selection"
-                        echo "    - verify_target follow-up after failed inspection"
-                        echo "    - LLM-action validation and fallback"
-                        echo "    - strategic policy integration contract"
-                        echo ""
-                        cd /workspace/third_party/vlmaps
-                        python -m pytest \
-                            tests/test_phase_g_strategic_policy.py \
-                            tests/test_phase_f_actions.py \
-                            tests/test_room_instance_resolution.py -v
+                        run_testing_menu
                         ;;
                     g|G)
                         echo ""
@@ -608,9 +664,10 @@ while true; do
                             done < <(find "$SCENES_DIR" -mindepth 1 -maxdepth 1 -type d | sort)
                         fi
                         echo ""
-                        echo -n "  scene_id (default 0): "
-                        read -r scene
-                        scene=${scene:-0}
+                        if ! prompt_valid_scene_id "scene_id" 0; then
+                            continue
+                        fi
+                        scene="$SELECTED_SCENE_ID"
                         echo ""
                         echo "► Generating obstacle map images for scene $scene  [$DS_LABEL]..."
                         cd /workspace/third_party/vlmaps

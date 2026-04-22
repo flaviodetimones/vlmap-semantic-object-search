@@ -42,7 +42,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -81,13 +81,19 @@ def run_entrypoint(
     stdin_text: str,
     log_path: Path,
     timeout: int,
+    env_extra: Optional[Dict[str, str]] = None,
 ) -> int:
     """Spawn the entrypoint, pipe stdin, tee stdout into log_path."""
     env = os.environ.copy()
-    # Encourage headless behaviour. Existing safe_imshow swallows window errors,
-    # but xkb/qt complaining on stderr is just noise.
-    env.setdefault("QT_QPA_PLATFORM", "offscreen")
+    # Batch evaluation must be headless, but interactive menu runs stay unchanged.
+    # We avoid forcing a Qt platform plugin here and instead disable all UI
+    # drawing inside the navigation scripts via a dedicated env var.
+    env.setdefault("VLMAPS_EVAL_HEADLESS", "1")
     env.setdefault("MPLBACKEND", "Agg")
+    py_path = str(VLMAPS_ROOT)
+    env["PYTHONPATH"] = py_path if not env.get("PYTHONPATH") else f"{py_path}:{env['PYTHONPATH']}"
+    if env_extra:
+        env.update({k: str(v) for k, v in env_extra.items() if v is not None})
 
     cmd = [sys.executable, str(entrypoint_path), *overrides]
     print(f"$ {' '.join(cmd)}")
@@ -146,12 +152,17 @@ def main() -> None:
     p.add_argument("--out", required=True, type=Path,
                    help="Output directory. Will hold raw_log.txt, segments/, manifest.json.")
     p.add_argument("--scene-id", type=int, required=True)
+    p.add_argument("--scene-name", default=None,
+                   help="Optional scene name; defaults to the single scene_name present in the JSONL, if any.")
     p.add_argument("--dataset-type", default="hssd")
     p.add_argument(
         "--scene-dataset-config-file",
         default="/workspace/data/versioned_data/hssd-hab/hssd-hab.scene_dataset_config.json",
     )
     p.add_argument("--data-paths", default="hssd")
+    p.add_argument("--heatmap-mode", choices=["baseline", "postprocessed"], default="postprocessed")
+    p.add_argument("--policy-mode", choices=["heuristic", "hybrid", "llm"], default=None,
+                   help="Executor-only policy mode, forwarded as VLMAPS_POLICY_MODE.")
     p.add_argument("--per-query-timeout", type=int, default=180,
                    help="Soft per-query budget (seconds). Total timeout = N * this.")
     p.add_argument("--extra-overrides", nargs="*", default=[],
@@ -174,6 +185,11 @@ def main() -> None:
     seg_dir.mkdir(exist_ok=True)
     log_path = args.out / "raw_log.txt"
 
+    scene_names = sorted({str(q.get("scene_name")) for q in queries if q.get("scene_name")})
+    scene_name = args.scene_name
+    if scene_name is None and len(scene_names) == 1:
+        scene_name = scene_names[0]
+
     # Build stdin: one query per line, then 'quit'. Trailing newline matters.
     stdin_text = "\n".join([q["query"] for q in queries] + ["quit"]) + "\n"
 
@@ -185,9 +201,21 @@ def main() -> None:
         *args.extra_overrides,
     ]
     timeout = max(args.per_query_timeout * len(queries), 600)
+    env_extra = {
+        "VLMAPS_HEATMAP_MODE": args.heatmap_mode,
+    }
+    if args.entrypoint == "executor" and args.policy_mode:
+        env_extra["VLMAPS_POLICY_MODE"] = args.policy_mode
 
     t0 = time.time()
-    rc = run_entrypoint(entrypoint_path, overrides, stdin_text, log_path, timeout)
+    rc = run_entrypoint(
+        entrypoint_path,
+        overrides,
+        stdin_text,
+        log_path,
+        timeout,
+        env_extra=env_extra,
+    )
     elapsed = time.time() - t0
     print(f"Subprocess finished rc={rc} in {elapsed:.1f}s "
           f"(~{elapsed / max(len(queries), 1):.1f}s/query)")
@@ -199,8 +227,11 @@ def main() -> None:
 
     manifest = {
         "entrypoint": args.entrypoint,
+        "heatmap_mode": args.heatmap_mode,
+        "policy_mode": args.policy_mode,
         "queries_jsonl": str(args.queries),
         "scene_id": args.scene_id,
+        "scene_name": scene_name,
         "dataset_type": args.dataset_type,
         "subprocess_returncode": rc,
         "subprocess_elapsed_sec": round(elapsed, 2),
@@ -217,6 +248,7 @@ def main() -> None:
             "query_type": q.get("query_type", "object"),
             "target_label": q.get("target_label", q["query"]),
             "expected_rooms": q.get("expected_rooms", []),
+            "expected_room_polygons": q.get("expected_room_polygons", []),
             "tags": q.get("tags", []),
             "segment_path": str(seg_path.relative_to(args.out)),
             "segment_chars": len(seg_text),

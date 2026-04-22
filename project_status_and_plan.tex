@@ -28,7 +28,7 @@
 \normalsize VLMaps + YOLOE + Habitat-Sim \,$\cdot$\, HSSD como dataset principal\\
 Extensión futura: ROS\,1 Noetic + Toyota HSR}
 \author{Mario García Blasco}
-\date{20 de abril de 2026}
+\date{22 de abril de 2026}
 
 \begin{document}
 
@@ -403,8 +403,8 @@ Fase C: priors objeto $\rightarrow$ habitación & \textcolor{done}{Completado} \
 Fase D: selector de habitación & \textcolor{done}{Completado} \\
 Fase E: candidatos intra-habitación & \textcolor{done}{Completado} \\
 Fase F: acciones de alto nivel & \textcolor{done}{Completado} \\
-Fase G: LLM estratégico con estado & \textcolor{pendingcol}{Pendiente} \\
-Fase H: métricas room-aware & \textcolor{pendingcol}{Pendiente} \\
+Fase G: LLM estratégico con estado & \textcolor{partialcol}{Parcial} \\
+Fase H: métricas room-aware & \textcolor{partialcol}{Parcial} \\
 \midrule
 Apartado extra: baseline vs.\ executor & \textcolor{partialcol}{Parcial} \\
 Baselines M1, M3 & \textcolor{partialcol}{Posterior} \\
@@ -982,10 +982,10 @@ escenario.
 \label{sec:apartado-extra}
 % =============================================================================
 
-A fecha 21.04 existe ya una \textbf{primera implementación funcional} del
+A fecha 22.04 existe ya una \textbf{implementación funcional} del
 \emph{executor} y de un \emph{entrypoint} alternativo, pero el apartado sigue
-\textbf{parcial}: falta la comparación sistemática con métricas y el informe
-lado a lado frente al baseline. Su objetivo no es
+\textbf{parcial}: la infraestructura de comparación ya está montada, pero falta
+ejecutarla a escala y consolidar resultados finales. Su objetivo no es
 añadir capacidades nuevas, sino \textbf{poder comparar de forma controlada
 la política \emph{inline} actual contra la nueva política basada en
 acciones tipadas}, una vez ambas están funcionando. Se aborda únicamente
@@ -1036,26 +1036,31 @@ las mismas primitivas de bajo nivel y solo cambia la orquestación.
 
 \subsection*{Qué se compara}
 
-Tener los dos entrypoints conviviendo permite dos ejes de comparación:
+Tener los dos entrypoints conviviendo permite ahora un diseño de evaluación
+\textbf{2x2} con dos ejes independientes:
 
 \begin{enumerate}
-  \item \textbf{Comportamiento end-to-end}: las mismas \emph{queries} de
-        \texttt{tools/nav\_batch\_queries.py} se ejecutan contra
-        \texttt{interactive\_object\_nav.py} y contra
-        \texttt{interactive\_object\_nav\_executor.py}. Las métricas de
-        Fase~H (SR, SPL, Wrong~Visits, Time~to~Find, CFR, CT2R, Rooms
-        Before Success, Inspections Before Success) se reportan en
-        paralelo para ambos.
-  \item \textbf{Heatmap baseline vs.\ procesado}: para cada \emph{query},
-        se vuelca tanto el heatmap producido por
-        \texttt{compute\_heatmap}~+\,\texttt{postprocess\_heatmap}
-        (versión \emph{flat}) como el heatmap \emph{room-aware}
-        resultante de filtrar por la habitación elegida por la política
-        de Fase~D y reordenar los componentes por la política
-        intra-habitación de Fase~E. La comparación visual y cuantitativa
-        de ambos mapas es lo que demuestra que la decisión semántica
-        está aportando valor antes incluso de mirar el SR final.
+  \item \textbf{Eje de orquestador}: baseline
+        (\texttt{interactive\_object\_nav.py}) frente a executor
+        (\texttt{interactive\_object\_nav\_executor.py}).
+  \item \textbf{Eje de heatmap}: heatmap baseline
+        (mapa crudo antes del postproceso) frente a heatmap postprocesado
+        (\texttt{postprocess\_heatmap}).
 \end{enumerate}
+
+Combinando ambos ejes aparecen cuatro métodos comparables sobre el mismo JSONL:
+\begin{center}
+\begin{tabular}{ll}
+\toprule
+\textbf{Clave} & \textbf{Configuración} \\
+\midrule
+\texttt{Ob\_Hb} & orquestador baseline + heatmap baseline \\
+\texttt{Oe\_Hb} & executor + heatmap baseline \\
+\texttt{Ob\_Hp} & orquestador baseline + heatmap postprocesado \\
+\texttt{Oe\_Hp} & executor + heatmap postprocesado \\
+\bottomrule
+\end{tabular}
+\end{center}
 
 \subsection*{Criterio de cierre}
 
@@ -1072,8 +1077,8 @@ siguiente) puede acometerse sustituyendo \emph{solo} las capas de
 percepción, navegación y ejecución, sin tocar la capa de decisión, que
 ya está validada en simulación.
 
-\textbf{Estado actual} (21.04, segunda iteración):
-\textcolor{partialcol}{ambas baterías de evaluación operativas; falta lanzarlas
+\textbf{Estado actual} (22.04):
+\textcolor{partialcol}{las baterías 2x2 y de heatmaps están integradas; falta lanzarlas
 sobre escenas representativas y consolidar las métricas}. La infraestructura
 queda dividida en dos pistas independientes que se pueden ejecutar por separado
 o en cadena:
@@ -1087,39 +1092,66 @@ o en cadena:
         \texttt{expected\_room\_polygons} (referencia exacta a polígonos
         del \texttt{semantic\_config.json} para \emph{ground truth}
         espacial). Ese mismo fichero alimenta los dos comparadores.
-  \item \textbf{Eje 1 --- comparador de orquestador (end-to-end)}.
-        \texttt{tools/run\_nav\_eval.py} canaliza el JSONL como
-        \texttt{stdin} hacia \texttt{interactive\_object\_nav.py} o
-        \texttt{interactive\_object\_nav\_executor.py}, captura el
-        \emph{log} y lo segmenta por el prompt
-        \texttt{Enter navigation instruction}, escribiendo
-        \texttt{segments/\{id\}.log} y un \texttt{manifest.json} que
-        asocia cada segmento al \emph{id} de la \emph{query} original.
-        \texttt{tools/compare\_nav\_runs.py} acepta dos manifiestos
-        (\texttt{--baseline-manifest}, \texttt{--executor-manifest}) y
-        produce CSV + Markdown alineados por \emph{id}, no por orden,
-        para que las filas correspondan exactamente a la misma
-        \emph{query} en ambos entrypoints.
-  \item \textbf{Eje 2 --- comparador de heatmaps (raw vs.\ procesado)}.
-        \texttt{tools/eval\_heatmap\_postprocess.py} carga la escena sin
-        sim, recorre el mismo JSONL y, para cada \emph{query}, calcula
-        el \emph{heatmap} crudo (CLIP + proyección 2D + decay) y el
-        \emph{heatmap} tras \texttt{postprocess\_heatmap}. Reporta por
-        cada versión: \texttt{Hit@1/3/5} (¿la celda top-K cae en la
-        habitación esperada?), \texttt{mass\_in\_expected\_ratio},
-        \texttt{IoU\_topmass50}, \texttt{wrong\_room\_mass\_ratio} y
-        \texttt{n\_components}, generando \texttt{per\_query.csv},
-        \texttt{summary.md} con conteo de victorias por métrica
-        (higher-/lower-better) y, opcionalmente
-        (\texttt{--save-images}), PNGs lado a lado con el polígono
-        objetivo dibujado en verde sobre el \emph{obstacle map}.
+  \item \textbf{Runner online 2x2}.
+        \texttt{tools/run\_nav\_eval.py} acepta ahora, además del
+        \emph{entrypoint}, un \texttt{heatmap\_mode}
+        (\texttt{baseline} o \texttt{postprocessed}) que se propaga como
+        variable de entorno a los dos navegadores. Cada ejecución produce
+        \texttt{raw\_log.txt}, \texttt{setup.log}, un directorio
+        \texttt{segments/} con un \texttt{.log} por query y un
+        \texttt{manifest.json} enriquecido con \texttt{scene\_id},
+        \texttt{scene\_name}, \texttt{heatmap\_mode} y toda la metadata
+        del JSONL. Encima de esta pieza, \texttt{tools/run\_full\_2x2\_eval.py}
+        orquesta automáticamente las cuatro combinaciones
+        \texttt{Ob\_Hb}, \texttt{Oe\_Hb}, \texttt{Ob\_Hp} y \texttt{Oe\_Hp},
+        copiando además el JSONL bajo
+        \texttt{/workspace/results/eval\_runs/\{timestamp\}/queries/}.
+  \item \textbf{Agregador de métricas 2x2}.
+        \texttt{tools/aggregate\_full\_2x2\_eval.py} consume los cuatro
+        manifiestos y produce dos vistas: (i)~\texttt{compare\_full.csv}
+        y \texttt{compare\_full.md} con una fila por query y columnas para
+        las cuatro combinaciones, y (ii)~\texttt{aggregate\_metrics.csv}
+        y \texttt{aggregate\_metrics.md} con métricas agregadas por
+        método, por \texttt{query\_type} y por \texttt{tag}. Las métricas
+        actualmente calculadas de forma robusta son:
+        SR, Object~SR, Room~SR, CFR, CT2R, Rooms~Before~Success,
+        Inspections~Before~Success, Wrong~Visits, Mean~Pose~Updates,
+        Early~Stop~Rate, Final~Room~Accuracy, Preview~No~Action~Rate,
+        Path~Stopped~Early~Rate, Mean~Executor~Actions y
+        Mean~Room~Transitions. Para ello, tanto baseline como executor
+        emiten al final de cada query un marcador estructurado
+        \texttt{[eval-summary] \{...\}} con historial de habitaciones,
+        candidatos intentados/confirmados y rastro de acciones.
+  \item \textbf{Comparador offline de heatmaps}.
+        \texttt{tools/eval\_heatmap\_postprocess.py} sigue calculando,
+        para cada query, el \emph{heatmap} crudo (CLIP + proyección 2D +
+        decay) y el \emph{heatmap} postprocesado, pero ahora añade además
+        agregación por \texttt{query\_type} y por \texttt{tag} en
+        \texttt{aggregate\_by\_slice.csv}. El \texttt{summary.md}
+        incluye tanto la tabla global como tablas resumidas por tipo de
+        query y por etiqueta (\texttt{multi\_instance},
+        \texttt{ambiguous\_room}, etc.), mientras que \texttt{per\_query.csv}
+        conserva la traza completa query-a-query.
+  \item \textbf{Submenú de evaluación simplificado}.
+        El menú interactivo del contenedor concentra ahora la evaluación
+        bajo una única opción \texttt{t) Testing / evaluation submenu} con
+        exactamente tres entradas visibles:
+        \texttt{Generate test set},
+        \texttt{Compare full 2x2 pipeline} y
+        \texttt{Heatmap-only offline analysis}. El usuario ya no tiene que
+        encadenar scripts manualmente: basta elegir escena(s) y, si
+        quiere, un JSONL alternativo; el \emph{tooling} crea la estructura
+        estándar de resultados bajo
+        \texttt{/workspace/results/eval\_runs/\{timestamp\}/}.
 \end{itemize}
-Como ambos comparadores comparten el campo \texttt{id} y \texttt{scene\_id}
-del JSONL, los resultados se pueden cruzar a posteriori para responder
-preguntas del tipo \emph{«¿las queries que el orquestador falla son las que
-ya tenían un Hit@1 raw bajo, o son fallos genuinos del executor?»}. El
-trabajo restante se reduce a lanzar las baterías sobre las escenas HSSD
-disponibles, exportar las gráficas y comentar resultados.
+Como ambas pistas comparten \texttt{id}, \texttt{scene\_id},
+\texttt{query\_type}, \texttt{expected\_rooms} y \texttt{tags}, los resultados
+se pueden cruzar a posteriori para responder preguntas del tipo \emph{«¿las
+queries que el executor falla son justo las que ya tenían un
+\texttt{Hit@1} bajo en el heatmap raw, o hay fallos genuinos de
+orquestación?»}. El trabajo restante ya no es infraestructura, sino lanzar las
+baterías sobre escenas HSSD representativas, revisar salidas y comentar
+resultados.
 
 % =============================================================================
 \section{Extensión futura: ROS\,1 Noetic + Toyota HSR}
@@ -1932,6 +1964,99 @@ disponibilidad del robot HSR en el laboratorio V4R del TU Wien.
         política seleccionable desde el menú (\texttt{heuristic},
         \texttt{hybrid}, \texttt{llm}). La validación unitaria queda cubierta
         por \texttt{tests/test\_phase\_g\_strategic\_policy.py}.
+
+\end{enumerate}
+
+% =============================================================================
+\subsection*{22 de abril de 2026}
+% =============================================================================
+
+\begin{enumerate}
+
+  \item \textbf{El \textit{testing} deja de ser una colección de utilidades y
+        pasa a ser un flujo único}: se reorganiza por completo el submenú
+        \texttt{t} del contenedor para que muestre solo tres opciones visibles:
+        \texttt{Generate test set}, \texttt{Compare full 2x2 pipeline} y
+        \texttt{Heatmap-only offline analysis}. Las antiguas utilidades
+        intermedias (batch baseline aislado, comparación binaria baseline vs.\
+        executor, runner JSONL suelto y tests unitarios de F/G) siguen
+        existiendo como piezas internas o de desarrollo, pero dejan de ser el
+        flujo principal del usuario. La intención es que la evaluación pase a
+        ser reproducible y autoexplicativa: elegir escena(s), pulsar, esperar y
+        recoger resultados en una carpeta estándar.
+
+  \item \textbf{Selección explícita del tipo de heatmap en runtime}: hasta esta
+        fecha, baseline y executor compartían implícitamente
+        \texttt{compute\_heatmap()}, lo que impedía montar una comparación 2x2
+        limpia sin duplicar entrypoints. Se introduce
+        \texttt{VLMAPS\_HEATMAP\_MODE} con dos modos explícitos:
+        \texttt{baseline} (heatmap crudo tras proyección 2D + decay, sin
+        postproceso) y \texttt{postprocessed} (pipeline actual con
+        \texttt{postprocess\_heatmap}). El baseline y el executor imprimen el
+        modo activo al arrancar y el valor queda recogido en el
+        \texttt{manifest.json} de cada corrida. Además, ambos entrypoints
+        emiten ahora al final de cada query un resumen estructurado
+        \texttt{[eval-summary] \{...\}} con habitación final, historial de
+        habitaciones, número de candidatos inspeccionados/confirmados, rastro
+        de acciones y recuento de celdas visitadas. Esta capa permite
+        calcular métricas de Fase~H sin depender de \emph{regex} frágiles sobre
+        logs textuales.
+
+  \item \textbf{Runner online 2x2 y agregador de métricas completos}: se añaden
+        dos herramientas nuevas. La primera,
+        \texttt{tools/run\_full\_2x2\_eval.py}, coordina de forma automática las
+        cuatro combinaciones \texttt{Ob\_Hb}, \texttt{Oe\_Hb},
+        \texttt{Ob\_Hp} y \texttt{Oe\_Hp}, reutilizando
+        \texttt{tools/run\_nav\_eval.py} como runner por método. La segunda,
+        \texttt{tools/aggregate\_full\_2x2\_eval.py}, consume los cuatro
+        manifiestos y genera dos vistas listas para inspección:
+        \texttt{compare\_full.csv}/\texttt{.md} (una fila por query) y
+        \texttt{aggregate\_metrics.csv}/\texttt{.md} (una fila por método y
+        \emph{slice}). Las salidas se agrupan bajo una estructura homogénea:
+        \texttt{/workspace/results/eval\_runs/\{timestamp\}/queries/},
+        \texttt{pipeline\_2x2/\{scene\}/Ob\_Hb}, \ldots,
+        junto con un \texttt{config.json} raíz que describe escenas, semilla,
+        política del executor, rutas de queries y métodos corridos.
+
+  \item \textbf{Métricas online ya instrumentadas y \emph{slicing} por
+        \texttt{query\_type}/\texttt{tag}}: el agregador 2x2 calcula ya de forma
+        reproducible SR, Object~SR, Room~SR, CFR, CT2R,
+        Rooms~Before~Success, Inspections~Before~Success, Wrong~Visits,
+        Mean~Pose~Updates, Early~Stop~Rate, Final~Room~Accuracy,
+        Preview~No~Action~Rate, Path~Stopped~Early~Rate,
+        Mean~Executor~Actions y Mean~Room~Transitions. No todas las métricas
+        tienen aún el mismo grado de robustez: por ejemplo,
+        \texttt{Inspections Before Success} se aproxima como
+        \texttt{candidates\_tried - candidates\_confirmed} cuando la query
+        termina en éxito, y \texttt{Rooms Before Success} se interpreta como el
+        índice de la primera habitación esperada dentro de \texttt{visit\_history}.
+        Estas aproximaciones quedan explícitas en el \texttt{Markdown} generado,
+        en vez de presentarlas como magnitudes más precisas de lo que el log
+        realmente permite.
+
+  \item \textbf{La evaluación offline de heatmaps gana agregación por slices y
+        envoltorio estándar}: \texttt{tools/eval\_heatmap\_postprocess.py}
+        mantiene la salida \texttt{per\_query.csv}, pero añade un
+        \texttt{aggregate\_by\_slice.csv} y tablas adicionales en
+        \texttt{summary.md} para resumir el rendimiento del heatmap raw y del
+        heatmap postprocesado por \texttt{query\_type} y por \texttt{tag}. Para
+        que esta tercera opción del submenú no requiera rutas ni carpetas
+        manuales, se añade \texttt{tools/run\_heatmap\_offline\_eval.py}, que
+        normaliza la salida bajo
+        \texttt{/workspace/results/eval\_runs/\{timestamp\}/heatmap\_offline/}
+        y escribe también su propio \texttt{config.json}.
+
+  \item \textbf{Validación rápida sin navegación larga}: se ejecutan únicamente
+        comprobaciones ligeras, coherentes con el criterio del proyecto de no
+        lanzar desde el asistente corridas largas de simulación sin supervisión
+        del usuario. Han pasado \texttt{bash -n} sobre el menú, \texttt{py\_compile}
+        de los scripts y entrypoints tocados, una batería \texttt{pytest} nueva
+        con manifests sintéticos para el agregador 2x2
+        (\texttt{tests/test\_eval\_2x2\_tools.py}) y, además, las suites ya
+        existentes de Fase~F, Fase~G y resolución de instancias de habitación
+        (26 tests). Con ello queda validado el armazón de evaluación; lo que
+        falta a partir de ahora es usarlo sobre escenas y JSONLs reales para
+        producir resultados y discutirlos en la memoria.
 
 \end{enumerate}
 
