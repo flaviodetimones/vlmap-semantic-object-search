@@ -1,0 +1,14 @@
+{
+  "scene_id": 0,
+  "scene_name": "102344280_0",
+  "_comment": "Scene 102344280 has rooms: entryway, hallway, closet (x3), dining room, laundryroom, tv, bedroom (x3), bathroom (x3), kitchen. Furniture inventory: 7 table, 12 chair, 1 counter, 1 couch, 3 shelves, 12 picture, 9 stool, 7 chest_of_drawers, 3 bed, 2 cabinet, 2 bench, 2 wardrobe, 2 tv. Already in scene naturally: 4 vase, 3 book, 2 laptop.",
+  "placements": [
+    {"object": "bottle", "furniture": "counter", "room_hint": "kitchen",     "count": 1, "tags": ["level3", "needs_surrogate"]},
+    {"object": "cup",    "furniture": "table",   "room_hint": "dining room", "count": 1, "tags": ["level3", "needs_surrogate"]},
+    {"object": "cup",    "furniture": "counter", "room_hint": "kitchen",     "count": 1, "tags": ["level3", "needs_surrogate"]},
+    {"object": "laptop", "furniture": "table",   "room_hint": "tv",          "count": 1, "tags": ["level3", "needs_surrogate"]},
+    {"object": "bowl",   "furniture": "table",   "room_hint": "dining room", "count": 1, "tags": ["level3", "needs_surrogate"]},
+    {"object": "book",   "furniture": "shelf",   "count": 2,                              "tags": ["level3", "needs_surrogate"]},
+    {"object": "vase",   "furniture": "chest_of_drawers", "room_hint": "bedroom", "count": 1, "tags": ["level3", "in_vlmap"]}
+  ]
+}
