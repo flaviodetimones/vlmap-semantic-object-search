@@ -185,3 +185,22 @@ python tools/run_full_eval.py \
   --resume \
   --out /workspace/results/eval_runs/20260423_120000
 ```
+
+## YOLO conf-thresh sweep
+
+When you only want to study the effect of the YOLOE verification threshold, use
+the dedicated sweep harness instead of rerunning the whole `2x2`.
+
+Example:
+
+```bash
+python tools/run_yoloe_thresh_sweep.py \
+    --scene-id 0 \
+    --queries tools/eval_queries/102344193_0.jsonl \
+    --thresholds 0.30,0.40,0.50,0.60 \
+    --out /workspace/results/yoloe_sweep/$(date +%Y%m%d_%H%M%S)
+```
+
+By default the sweep runs a single method, `Oe_Hp`, because the threshold is
+orthogonal to the orchestrator / heatmap axis. That keeps the cost low while
+still exposing the precision / recall tradeoff of YOLOE verification.
