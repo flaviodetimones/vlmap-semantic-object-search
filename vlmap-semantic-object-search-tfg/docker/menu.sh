@@ -149,6 +149,7 @@ run_testing_menu() {
         echo "  │  1) Generate test set                           │"
         echo "  │  2) Compare full 2x2 pipeline                   │"
         echo "  │  3) Heatmap-only offline analysis               │"
+        echo "  │  4) YOLOE conf-thresh sweep                     │"
         echo "  │  b) Back                                        │"
         echo "  └─────────────────────────────────────────────────┘"
         echo -n "  Select: "
@@ -194,7 +195,7 @@ run_testing_menu() {
             2)
                 echo ""
                 if [ "$DATASET_TYPE" != "hssd" ]; then
-                    echo "  Full 2x2 comparison is currently HSSD-only."
+                    echo "  Full pipeline comparison is currently HSSD-only."
                     echo "  Switch to HSSD from the dataset menu."
                 elif [ -z "$OPENAI_API_KEY" ]; then
                     echo "  WARNING: OPENAI_API_KEY is not set. Set it before running the 2x2 comparison."
@@ -211,6 +212,9 @@ run_testing_menu() {
                     echo -n "  Executor policy mode [heuristic|hybrid|llm] (default hybrid): "
                     read -r policy_mode
                     policy_mode=${policy_mode:-hybrid}
+                    echo -n "  YOLOE conf threshold [0.30|0.35|0.40] (default 0.30): "
+                    read -r yoloe_conf
+                    yoloe_conf=${yoloe_conf:-0.30}
                     STAMP=$(date +%Y%m%d_%H%M%S)
                     OUT_DIR="/workspace/results/eval_runs/${STAMP}"
                     echo ""
@@ -218,21 +222,23 @@ run_testing_menu() {
                     echo "  Output root: $OUT_DIR"
                     cd /workspace
                     if [ -n "$eval_queries" ]; then
-                        python tools/run_full_2x2_eval.py \
+                        python tools/run_full_eval.py \
                             --scene-ids "$scene_ids" \
                             --queries "$eval_queries" \
                             --dataset-type "$DATASET_TYPE" \
                             --data-paths "$DATA_PATHS" \
                             --scene-dataset-config-file "$HSSD_CFG" \
                             --policy-mode "$policy_mode" \
+                            --yoloe-conf-thresh "$yoloe_conf" \
                             --out "$OUT_DIR"
                     else
-                        python tools/run_full_2x2_eval.py \
+                        python tools/run_full_eval.py \
                             --scene-ids "$scene_ids" \
                             --dataset-type "$DATASET_TYPE" \
                             --data-paths "$DATA_PATHS" \
                             --scene-dataset-config-file "$HSSD_CFG" \
                             --policy-mode "$policy_mode" \
+                            --yoloe-conf-thresh "$yoloe_conf" \
                             --out "$OUT_DIR"
                     fi
                     echo ""
@@ -296,6 +302,70 @@ run_testing_menu() {
                                 --dataset-type "$DATASET_TYPE" \
                                 --data-paths "$DATA_PATHS" \
                                 --scene-dataset-config-file "$HSSD_CFG" \
+                                --out "$OUT_DIR"
+                        fi
+                    fi
+                    echo ""
+                    echo "  Results root:  $OUT_DIR"
+                fi
+                ;;
+            4)
+                echo ""
+                if [ "$DATASET_TYPE" != "hssd" ]; then
+                    echo "  YOLOE conf-thresh sweep is currently HSSD-only."
+                    echo "  Switch to HSSD from the dataset menu."
+                elif [ -z "$OPENAI_API_KEY" ]; then
+                    echo "  WARNING: OPENAI_API_KEY is not set. Set it before running the sweep."
+                else
+                    echo "  Available scenes [$DS_LABEL]:"
+                    echo "  ─────────────────────────────────────────────────"
+                    print_scene_list
+                    echo ""
+                    echo -n "  Scene id (default 0): "
+                    read -r sweep_scene_id
+                    sweep_scene_id=${sweep_scene_id:-0}
+                    echo -n "  Queries path (blank = default eval_queries/{scene_name}.jsonl): "
+                    read -r sweep_queries
+                    echo -n "  Thresholds CSV (default 0.30,0.40,0.50,0.60): "
+                    read -r sweep_thresholds
+                    sweep_thresholds=${sweep_thresholds:-0.30,0.40,0.50,0.60}
+                    echo -n "  Method key [Ob_Hb|Ob_Hp|Oe_Hb|Oe_Hp] (default Oe_Hp): "
+                    read -r sweep_method
+                    sweep_method=${sweep_method:-Oe_Hp}
+                    echo -n "  Executor policy mode [heuristic|hybrid|llm] (default hybrid): "
+                    read -r sweep_policy_mode
+                    sweep_policy_mode=${sweep_policy_mode:-hybrid}
+                    STAMP=$(date +%Y%m%d_%H%M%S)
+                    OUT_DIR="/workspace/results/yoloe_sweep/${STAMP}"
+                    echo ""
+                    echo "► Running YOLOE conf-thresh sweep..."
+                    echo "  Output root: $OUT_DIR"
+                    cd /workspace
+                    if [ -n "$sweep_queries" ]; then
+                        python tools/run_yoloe_thresh_sweep.py \
+                            --scene-id "$sweep_scene_id" \
+                            --queries "$sweep_queries" \
+                            --thresholds "$sweep_thresholds" \
+                            --method-key "$sweep_method" \
+                            --dataset-type "$DATASET_TYPE" \
+                            --data-paths "$DATA_PATHS" \
+                            --scene-dataset-config-file "$HSSD_CFG" \
+                            --policy-mode "$sweep_policy_mode" \
+                            --out "$OUT_DIR"
+                    else
+                        scene_name=$(scene_name_from_id "$sweep_scene_id")
+                        if [ -z "$scene_name" ]; then
+                            echo "  Could not resolve scene_name for scene_id=$sweep_scene_id"
+                        else
+                            python tools/run_yoloe_thresh_sweep.py \
+                                --scene-id "$sweep_scene_id" \
+                                --queries "/workspace/tools/eval_queries/${scene_name}.jsonl" \
+                                --thresholds "$sweep_thresholds" \
+                                --method-key "$sweep_method" \
+                                --dataset-type "$DATASET_TYPE" \
+                                --data-paths "$DATA_PATHS" \
+                                --scene-dataset-config-file "$HSSD_CFG" \
+                                --policy-mode "$sweep_policy_mode" \
                                 --out "$OUT_DIR"
                         fi
                     fi
@@ -429,9 +499,11 @@ while true; do
                         echo "    #   1) Generate test set"
                         echo "    #   2) Compare full 2x2 pipeline"
                         echo "    #   3) Heatmap-only offline analysis"
+                        echo "    #   4) YOLOE conf-thresh sweep"
                         echo ""
                         echo "    # Direct runners from inside the container:"
-                        echo "    python /workspace/tools/run_full_2x2_eval.py --scene-ids 0 --out /workspace/results/eval_runs/demo"
+                        echo "    python /workspace/tools/run_full_eval.py --scene-ids 0 --yoloe-conf-thresh 0.30 --out /workspace/results/eval_runs/demo"
+                        echo "    python /workspace/tools/run_yoloe_thresh_sweep.py --scene-id 0 --queries /workspace/tools/eval_queries/SCENE.jsonl --thresholds 0.30,0.35,0.40 --out /workspace/results/yoloe_sweep/demo"
                         echo "    python /workspace/tools/run_heatmap_offline_eval.py --scene-ids 0 --out /workspace/results/eval_runs/demo"
                         else
                         echo "  All scripts use Hydra. Run them from inside the container."

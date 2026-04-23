@@ -161,8 +161,12 @@ def main() -> None:
     )
     p.add_argument("--data-paths", default="hssd")
     p.add_argument("--heatmap-mode", choices=["baseline", "postprocessed"], default="postprocessed")
+    p.add_argument("--room-aware", choices=["on", "off"], default="on",
+                   help="Executor-only: enable/disable room-aware selection and candidate gating.")
     p.add_argument("--policy-mode", choices=["heuristic", "hybrid", "llm"], default=None,
                    help="Executor-only policy mode, forwarded as VLMAPS_POLICY_MODE.")
+    p.add_argument("--yoloe-conf-thresh", type=float, default=0.30,
+                   help="YOLOE confidence threshold forwarded to runtime.")
     p.add_argument("--per-query-timeout", type=int, default=180,
                    help="Soft per-query budget (seconds). Total timeout = N * this.")
     p.add_argument("--extra-overrides", nargs="*", default=[],
@@ -201,11 +205,15 @@ def main() -> None:
         *args.extra_overrides,
     ]
     timeout = max(args.per_query_timeout * len(queries), 600)
+    effective_room_aware = args.room_aware if args.entrypoint == "executor" else "off"
     env_extra = {
         "VLMAPS_HEATMAP_MODE": args.heatmap_mode,
+        "VLMAPS_YOLOE_CONF_THRESH": str(args.yoloe_conf_thresh),
     }
-    if args.entrypoint == "executor" and args.policy_mode:
-        env_extra["VLMAPS_POLICY_MODE"] = args.policy_mode
+    if args.entrypoint == "executor":
+        env_extra["VLMAPS_ROOM_AWARE"] = effective_room_aware
+        if args.policy_mode:
+            env_extra["VLMAPS_POLICY_MODE"] = args.policy_mode
 
     t0 = time.time()
     rc = run_entrypoint(
@@ -223,11 +231,21 @@ def main() -> None:
     segments = split_log_into_segments(log_path, len(queries))
     # segments[0] is the setup banner; queries align with segments[1..N].
     setup_path = args.out / "setup.log"
-    setup_path.write_text(segments[0], encoding="utf-8")
+    setup_header = (
+        f"Entrypoint: {args.entrypoint}\n"
+        f"Heatmap mode: {args.heatmap_mode}\n"
+        f"YOLOE conf thresh: {args.yoloe_conf_thresh:.2f}\n"
+        f"Room-aware: {effective_room_aware}\n"
+        f"Policy mode: {args.policy_mode or '-'}\n"
+        f"Scene: {scene_name or args.scene_id}\n\n"
+    )
+    setup_path.write_text(setup_header + segments[0], encoding="utf-8")
 
     manifest = {
         "entrypoint": args.entrypoint,
         "heatmap_mode": args.heatmap_mode,
+        "yoloe_conf_thresh": args.yoloe_conf_thresh,
+        "room_aware": effective_room_aware,
         "policy_mode": args.policy_mode,
         "queries_jsonl": str(args.queries),
         "scene_id": args.scene_id,

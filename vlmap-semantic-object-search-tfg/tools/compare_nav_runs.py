@@ -237,6 +237,10 @@ def parse_manifest(path: Path) -> List[dict]:
     """
     manifest = json.loads(path.read_text(encoding="utf-8"))
     base_dir = path.parent
+    entrypoint = manifest.get("entrypoint", "")
+    room_aware = manifest.get("room_aware")
+    if room_aware is None:
+        room_aware = "on" if entrypoint == "executor" else "off"
     rows: List[dict] = []
     for entry in manifest.get("queries", []):
         seg_path = base_dir / entry["segment_path"]
@@ -251,6 +255,8 @@ def parse_manifest(path: Path) -> List[dict]:
         row["tags"] = "|".join(entry.get("tags", []))
         row["entrypoint"] = manifest.get("entrypoint", "")
         row["heatmap_mode"] = manifest.get("heatmap_mode", "")
+        row["yoloe_conf_thresh"] = manifest.get("yoloe_conf_thresh")
+        row["room_aware"] = room_aware
         row["policy_mode"] = manifest.get("policy_mode", "")
         row["scene_id"] = manifest.get("scene_id")
         row["scene_name"] = manifest.get("scene_name", "")
@@ -398,13 +404,23 @@ def main() -> None:
         baseline_rows = parse_manifest(args.baseline_manifest)
         executor_rows = parse_manifest(args.executor_manifest)
         rows = compare_rows_by_id(baseline_rows, executor_rows)
+        baseline_meta = baseline_rows[0] if baseline_rows else {}
+        executor_meta = executor_rows[0] if executor_rows else {}
     else:
         baseline_rows = parse_log(args.baseline_log)
         executor_rows = parse_log(args.executor_log)
         rows = compare_rows(baseline_rows, executor_rows)
+        baseline_meta = {}
+        executor_meta = {}
 
     write_csv(rows, args.out_csv)
     write_markdown(rows, args.out_md)
+    if use_manifests:
+        header = (
+            f"Baseline: heatmap={baseline_meta.get('heatmap_mode', '-')}, yoloe_conf_thresh={baseline_meta.get('yoloe_conf_thresh', '-')}, room_aware={baseline_meta.get('room_aware', '-')}\n"
+            f"Executor: heatmap={executor_meta.get('heatmap_mode', '-')}, yoloe_conf_thresh={executor_meta.get('yoloe_conf_thresh', '-')}, room_aware={executor_meta.get('room_aware', '-')}\n\n"
+        )
+        args.out_md.write_text(header + args.out_md.read_text(encoding="utf-8"), encoding="utf-8")
     print(f"Wrote CSV: {args.out_csv}")
     print(f"Wrote MD:  {args.out_md}")
 
