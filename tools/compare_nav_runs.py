@@ -29,6 +29,7 @@ ARRIVED_ROOM_RE = re.compile(r"Arrived at room '(.+?)'")
 ROOM_FAIL_RE = re.compile(r"Room navigation FAILED: requested '(.+?)', ended in '(.+?)'")
 EXEC_ROOM_FAIL_RE = re.compile(r"\[executor\] Room navigation failed for '(.+?)'\.")
 TARGETS_RE = re.compile(r"Targets:\s*(\[.*\])")
+EVAL_SUMMARY_RE = re.compile(r"\[eval-summary\]\s*(\{.*\})")
 
 
 def _normalize_room(text: str) -> str:
@@ -47,6 +48,7 @@ def _new_row() -> dict:
         "preview_no_action": False,
         "pose_updates": 0,
         "executor_actions": 0,
+        "eval_summary": None,
     }
 
 
@@ -80,6 +82,14 @@ def _consume_line(line: str, current: dict) -> None:
             current["targets"] = ", ".join(str(t) for t in targets)
         except Exception:
             current["targets"] = m.group(1)
+        return
+
+    m = EVAL_SUMMARY_RE.search(line)
+    if m:
+        try:
+            current["eval_summary"] = json.loads(m.group(1))
+        except Exception:
+            current["eval_summary"] = None
         return
 
     if "Path execution stopped early" in line:
@@ -144,6 +154,7 @@ def parse_log(path: Path) -> list[dict]:
                     "preview_no_action": False,
                     "pose_updates": 0,
                     "executor_actions": 0,
+                    "eval_summary": None,
                 }
                 rows.append(current)
                 continue
@@ -168,6 +179,14 @@ def parse_log(path: Path) -> list[dict]:
                     current["targets"] = ", ".join(str(t) for t in targets)
                 except Exception:
                     current["targets"] = m.group(1)
+                continue
+
+            m = EVAL_SUMMARY_RE.search(line)
+            if m:
+                try:
+                    current["eval_summary"] = json.loads(m.group(1))
+                except Exception:
+                    current["eval_summary"] = None
                 continue
 
             if "Path execution stopped early" in line:
@@ -218,6 +237,10 @@ def parse_manifest(path: Path) -> List[dict]:
     """
     manifest = json.loads(path.read_text(encoding="utf-8"))
     base_dir = path.parent
+    entrypoint = manifest.get("entrypoint", "")
+    room_aware = manifest.get("room_aware")
+    if room_aware is None:
+        room_aware = "on" if entrypoint == "executor" else "off"
     rows: List[dict] = []
     for entry in manifest.get("queries", []):
         seg_path = base_dir / entry["segment_path"]
@@ -226,8 +249,16 @@ def parse_manifest(path: Path) -> List[dict]:
         row["id"] = entry["id"]
         row["query"] = entry.get("query", row.get("query", ""))
         row["query_type"] = entry.get("query_type", "")
+        row["target_label"] = entry.get("target_label", row.get("query", ""))
         row["expected_rooms"] = "|".join(entry.get("expected_rooms", []))
+        row["expected_room_polygons"] = json.dumps(entry.get("expected_room_polygons", []))
         row["tags"] = "|".join(entry.get("tags", []))
+        row["entrypoint"] = manifest.get("entrypoint", "")
+        row["heatmap_mode"] = manifest.get("heatmap_mode", "")
+        row["room_aware"] = room_aware
+        row["policy_mode"] = manifest.get("policy_mode", "")
+        row["scene_id"] = manifest.get("scene_id")
+        row["scene_name"] = manifest.get("scene_name", "")
         rows.append(row)
     return rows
 
@@ -372,13 +403,23 @@ def main() -> None:
         baseline_rows = parse_manifest(args.baseline_manifest)
         executor_rows = parse_manifest(args.executor_manifest)
         rows = compare_rows_by_id(baseline_rows, executor_rows)
+        baseline_meta = baseline_rows[0] if baseline_rows else {}
+        executor_meta = executor_rows[0] if executor_rows else {}
     else:
         baseline_rows = parse_log(args.baseline_log)
         executor_rows = parse_log(args.executor_log)
         rows = compare_rows(baseline_rows, executor_rows)
+        baseline_meta = {}
+        executor_meta = {}
 
     write_csv(rows, args.out_csv)
     write_markdown(rows, args.out_md)
+    if use_manifests:
+        header = (
+            f"Baseline: heatmap={baseline_meta.get('heatmap_mode', '-')}, room_aware={baseline_meta.get('room_aware', '-')}\n"
+            f"Executor: heatmap={executor_meta.get('heatmap_mode', '-')}, room_aware={executor_meta.get('room_aware', '-')}\n\n"
+        )
+        args.out_md.write_text(header + args.out_md.read_text(encoding="utf-8"), encoding="utf-8")
     print(f"Wrote CSV: {args.out_csv}")
     print(f"Wrote MD:  {args.out_md}")
 

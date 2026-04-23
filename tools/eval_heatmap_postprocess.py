@@ -395,7 +395,37 @@ def aggregate_summary(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
     }
 
 
-def write_summary_md(summary: Dict[str, Any], path: Path, scene_name: str) -> None:
+def aggregate_by_slice(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def _slice_summary(slice_rows: List[Dict[str, Any]]) -> Dict[str, Any]:
+        summary = aggregate_summary(slice_rows)
+        flat = {
+            "n_queries": summary["n_queries"],
+        }
+        for k in METRIC_KEYS:
+            flat[f"raw_{k}"] = summary["raw_means"][k]
+            flat[f"clean_{k}"] = summary["clean_means"][k]
+        return flat
+
+    out: List[Dict[str, Any]] = []
+    out.append({"slice_kind": "global", "slice_value": "all", **_slice_summary(rows)})
+
+    query_types = sorted({r.get("query_type", "") for r in rows if r.get("query_type")})
+    for qt in query_types:
+        slice_rows = [r for r in rows if r.get("query_type") == qt]
+        out.append({"slice_kind": "query_type", "slice_value": qt, **_slice_summary(slice_rows)})
+
+    tags = sorted({tag for r in rows for tag in str(r.get("tags", "")).split("|") if tag})
+    for tag in tags:
+        slice_rows = [r for r in rows if tag in str(r.get("tags", "")).split("|")]
+        out.append({"slice_kind": "tag", "slice_value": tag, **_slice_summary(slice_rows)})
+
+    return out
+
+
+def write_summary_md(summary: Dict[str, Any], slice_rows: List[Dict[str, Any]], path: Path, scene_name: str) -> None:
+    def _fmt(value: float) -> str:
+        return "—" if np.isnan(value) else f"{value:.4f}"
+
     lines = [f"# Heatmap postprocess evaluation — `{scene_name}`",
              "",
              f"Queries evaluated: **{summary['n_queries']}**",
@@ -429,6 +459,41 @@ def write_summary_md(summary: Dict[str, Any], path: Path, scene_name: str) -> No
               "",
               "_lower-better_: wrong_room_mass_ratio, n_components",
               ""]
+
+    query_type_rows = [r for r in slice_rows if r["slice_kind"] == "query_type"]
+    if query_type_rows:
+        lines += ["", "## By query_type", ""]
+        lines += [
+            "| query_type | n | clean Hit@1 | clean Hit@5 | clean Mass in Expected | clean Wrong Room Mass | clean IoU TopMass50 |",
+            "|---|---:|---:|---:|---:|---:|---:|",
+        ]
+        for row in query_type_rows:
+            lines.append(
+                f"| {row['slice_value']} | {row['n_queries']} | "
+                f"{_fmt(row['clean_hit@1'])} | "
+                f"{_fmt(row['clean_hit@5'])} | "
+                f"{_fmt(row['clean_mass_in_expected_ratio'])} | "
+                f"{_fmt(row['clean_wrong_room_mass_ratio'])} | "
+                f"{_fmt(row['clean_iou_topmass50'])} |"
+            )
+
+    tag_rows = [r for r in slice_rows if r["slice_kind"] == "tag"]
+    if tag_rows:
+        lines += ["", "## By tag", ""]
+        lines += [
+            "| tag | n | clean Hit@1 | clean Hit@5 | clean Mass in Expected | clean Wrong Room Mass | clean IoU TopMass50 |",
+            "|---|---:|---:|---:|---:|---:|---:|",
+        ]
+        for row in tag_rows:
+            lines.append(
+                f"| {row['slice_value']} | {row['n_queries']} | "
+                f"{_fmt(row['clean_hit@1'])} | "
+                f"{_fmt(row['clean_hit@5'])} | "
+                f"{_fmt(row['clean_mass_in_expected_ratio'])} | "
+                f"{_fmt(row['clean_wrong_room_mass_ratio'])} | "
+                f"{_fmt(row['clean_iou_topmass50'])} |"
+            )
+
     path.write_text("\n".join(lines), encoding="utf-8")
 
 
@@ -570,7 +635,16 @@ def main() -> None:
 
     # Summary
     summary = aggregate_summary(rows)
-    write_summary_md(summary, args.out / "summary.md", scene_name)
+    slice_rows = aggregate_by_slice(rows)
+    slice_csv = args.out / "aggregate_by_slice.csv"
+    if slice_rows:
+        with slice_csv.open("w", newline="", encoding="utf-8") as f:
+            w = csv.DictWriter(f, fieldnames=list(slice_rows[0].keys()))
+            w.writeheader()
+            w.writerows(slice_rows)
+        print(f"Wrote {slice_csv}")
+
+    write_summary_md(summary, slice_rows, args.out / "summary.md", scene_name)
     print(f"Wrote {args.out / 'summary.md'}")
 
 
