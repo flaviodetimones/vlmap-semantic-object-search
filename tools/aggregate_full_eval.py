@@ -1,14 +1,13 @@
 #!/usr/bin/env python3
 """
-Aggregate the full online evaluation matrix.
+Aggregate the full online 2x2 evaluation matrix.
 
-Supports the 6 viable method cells:
-  Ob_Hb_Roff, Ob_Hp_Roff,
-  Oe_Hb_Roff, Oe_Hp_Roff,
-  Oe_Hb_Ron,  Oe_Hp_Ron
+Supports the four method cells:
+  Ob_Hb, Ob_Hp,
+  Oe_Hb, Oe_Hp
 
 The script accepts any subset, but the full report is most meaningful when all
-6 manifests are present.
+4 manifests are present.
 """
 
 from __future__ import annotations
@@ -304,10 +303,10 @@ def _write_csv(rows: List[dict], out_path: Path) -> None:
 
 def _pair_delta_rows(global_rows: Dict[str, dict]) -> List[dict]:
     pairs = [
-        ("Action vocabulary (postproc)", "Oe_Hp_Roff", "Ob_Hp_Roff"),
-        ("Action vocabulary (raw)", "Oe_Hb_Roff", "Ob_Hb_Roff"),
-        ("Room-aware (postproc)", "Oe_Hp_Ron", "Oe_Hp_Roff"),
-        ("Room-aware (raw)", "Oe_Hb_Ron", "Oe_Hb_Roff"),
+        ("Action vocabulary (postproc)", "Oe_Hp", "Ob_Hp"),
+        ("Action vocabulary (raw)", "Oe_Hb", "Ob_Hb"),
+        ("Heatmap postproc (baseline)", "Ob_Hp", "Ob_Hb"),
+        ("Heatmap postproc (executor)", "Oe_Hp", "Oe_Hb"),
     ]
     deltas = []
     for label, lhs, rhs in pairs:
@@ -320,26 +319,12 @@ def _pair_delta_rows(global_rows: Dict[str, dict]) -> List[dict]:
             row[metric] = float("nan") if math.isnan(lval) or math.isnan(rval) else lval - rval
         deltas.append(row)
 
-    post_pairs = [
-        ("Ob postproc", "Ob_Hp_Roff", "Ob_Hb_Roff"),
-        ("Oe postproc, room-off", "Oe_Hp_Roff", "Oe_Hb_Roff"),
-        ("Oe postproc, room-on", "Oe_Hp_Ron", "Oe_Hb_Ron"),
-    ]
-    for label, lhs, rhs in post_pairs:
-        if lhs not in global_rows or rhs not in global_rows:
-            continue
-        row = {"contrast": f"Heatmap postproc ({label})", "lhs": lhs, "rhs": rhs}
-        for metric in MAIN_METRICS + ADDITIONAL_METRICS:
-            lval = global_rows[lhs].get(metric, float("nan"))
-            rval = global_rows[rhs].get(metric, float("nan"))
-            row[metric] = float("nan") if math.isnan(lval) or math.isnan(rval) else lval - rval
-        deltas.append(row)
     return deltas
 
 
 def _write_compare_md(rows: List[dict], out_path: Path, ordered_keys: List[str]) -> None:
     lines = [
-        "# Full pipeline per-query comparison",
+        "# Full 2x2 pipeline per-query comparison",
         "",
         "| # | query | type | " + " | ".join(ordered_keys) + " |",
         "|---:|---|---|" + "|".join("---" for _ in ordered_keys) + "|",
@@ -368,7 +353,7 @@ def _write_aggregate_md(rows: List[dict], out_path: Path) -> None:
     delta_rows = _pair_delta_rows(global_by_method)
 
     lines = [
-        "# Full pipeline aggregate metrics",
+        "# Full 2x2 pipeline aggregate metrics",
         "",
         "## Main table",
         "",
@@ -461,7 +446,7 @@ def _write_aggregate_md(rows: List[dict], out_path: Path) -> None:
 
 def _write_cross_scene_md(rows: List[dict], out_path: Path) -> None:
     lines = [
-        "# Cross-scene aggregate metrics",
+        "# Cross-scene 2x2 aggregate metrics",
         "",
         "| method | SR | Object SR | CFR | CT2R | Rooms Before Success | Wrong Visits | Mean Pose Updates | Early Stop Rate |",
         "|---|---:|---:|---:|---:|---:|---:|---:|---:|",

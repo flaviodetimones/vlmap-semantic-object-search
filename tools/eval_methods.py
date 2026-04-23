@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Shared helpers for full evaluation naming and scene/query path resolution.
+Shared helpers for 2x2 evaluation naming and scene/query path resolution.
 """
 
 from __future__ import annotations
@@ -13,12 +13,10 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 METHOD_SPECS = [
-    {"key": "Ob_Hb_Roff", "entrypoint": "baseline", "heatmap_mode": "baseline", "room_aware": "off"},
-    {"key": "Ob_Hp_Roff", "entrypoint": "baseline", "heatmap_mode": "postprocessed", "room_aware": "off"},
-    {"key": "Oe_Hb_Roff", "entrypoint": "executor", "heatmap_mode": "baseline", "room_aware": "off"},
-    {"key": "Oe_Hp_Roff", "entrypoint": "executor", "heatmap_mode": "postprocessed", "room_aware": "off"},
-    {"key": "Oe_Hb_Ron", "entrypoint": "executor", "heatmap_mode": "baseline", "room_aware": "on"},
-    {"key": "Oe_Hp_Ron", "entrypoint": "executor", "heatmap_mode": "postprocessed", "room_aware": "on"},
+    {"key": "Ob_Hb", "entrypoint": "baseline", "heatmap_mode": "baseline"},
+    {"key": "Ob_Hp", "entrypoint": "baseline", "heatmap_mode": "postprocessed"},
+    {"key": "Oe_Hb", "entrypoint": "executor", "heatmap_mode": "baseline"},
+    {"key": "Oe_Hp", "entrypoint": "executor", "heatmap_mode": "postprocessed"},
 ]
 
 
@@ -29,7 +27,7 @@ def parse_scene_ids(raw: str) -> List[int]:
 def normalize_room_aware(entrypoint: str, room_aware: str | None) -> str:
     ep = str(entrypoint).strip().lower()
     if room_aware is None:
-        return "on" if ep == "executor" else "off"
+        return "off"
     raw = str(room_aware).strip().lower()
     if raw in {"1", "true", "on", "yes"}:
         return "on"
@@ -41,14 +39,11 @@ def normalize_room_aware(entrypoint: str, room_aware: str | None) -> str:
 def method_key(entrypoint: str, heatmap_mode: str, room_aware: str | None = None) -> str:
     ep = str(entrypoint).strip().lower()
     hm = str(heatmap_mode).strip().lower()
-    ra = normalize_room_aware(ep, room_aware)
-    if ep == "baseline" and ra == "on":
-        raise ValueError("baseline does not implement room-aware mode")
     for spec in METHOD_SPECS:
-        if spec["entrypoint"] == ep and spec["heatmap_mode"] == hm and spec["room_aware"] == ra:
+        if spec["entrypoint"] == ep and spec["heatmap_mode"] == hm:
             return spec["key"]
     raise ValueError(
-        f"Unsupported method combination: entrypoint={entrypoint}, heatmap_mode={heatmap_mode}, room_aware={ra}"
+        f"Unsupported method combination: entrypoint={entrypoint}, heatmap_mode={heatmap_mode}"
     )
 
 

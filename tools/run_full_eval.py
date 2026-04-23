@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Run the full online evaluation matrix (6 viable methods) and generate
-per-scene aggregates, cross-scene aggregates, plots and a simple HTML report.
+Run the full online 2x2 evaluation matrix and generate per-scene aggregates,
+cross-scene aggregates, plots and a simple HTML report.
 """
 
 from __future__ import annotations
@@ -93,10 +93,10 @@ def _write_report_html(out_root: Path, plot_paths: Dict[str, str]) -> Path:
     cross_md = out_root / "pipeline_full" / "aggregate_cross_scenes.md"
     html = [
         "<!doctype html>",
-        "<html><head><meta charset='utf-8'><title>Full evaluation report</title>",
+        "<html><head><meta charset='utf-8'><title>Full 2x2 evaluation report</title>",
         "<style>body{font-family:sans-serif;margin:24px;max-width:1400px} img{max-width:100%;border:1px solid #ddd} table{border-collapse:collapse;margin:12px 0 20px 0} td,th{border:1px solid #ddd;padding:6px 8px} pre{white-space:pre-wrap;background:#fafafa;padding:12px;border:1px solid #eee;overflow:auto}</style>",
         "</head><body>",
-        "<h1>Full evaluation report</h1>",
+        "<h1>Full 2x2 evaluation report</h1>",
         "<ul>",
         "<li><a href='config.json'>config.json</a></li>",
         "<li><a href='pipeline_full/aggregate_cross_scenes.md'>aggregate_cross_scenes.md</a></li>",
@@ -150,6 +150,7 @@ def main() -> None:
         default="/workspace/data/versioned_data/hssd-hab/hssd-hab.scene_dataset_config.json",
     )
     parser.add_argument("--policy-mode", choices=["heuristic", "hybrid", "llm"], default="hybrid")
+    parser.add_argument("--yoloe-conf-thresh", type=float, default=0.30)
     parser.add_argument("--per-query-timeout", type=int, default=180)
     parser.add_argument("--methods", default=None,
                         help="Optional comma-separated subset of method keys.")
@@ -180,6 +181,7 @@ def main() -> None:
         "data_paths": args.data_paths,
         "scene_dataset_config_file": args.scene_dataset_config_file,
         "policy_mode": args.policy_mode,
+        "yoloe_conf_thresh": args.yoloe_conf_thresh,
         "per_query_timeout": args.per_query_timeout,
         "resume": args.resume,
         "methods": selected_specs,
@@ -226,7 +228,7 @@ def main() -> None:
                 "--queries", str(copied_queries),
                 "--entrypoint", spec["entrypoint"],
                 "--heatmap-mode", spec["heatmap_mode"],
-                "--room-aware", spec["room_aware"],
+                "--yoloe-conf-thresh", str(args.yoloe_conf_thresh),
                 "--scene-id", str(scene_id),
                 "--scene-name", scene_name,
                 "--dataset-type", args.dataset_type,

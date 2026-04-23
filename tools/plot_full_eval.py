@@ -38,7 +38,7 @@ def _load_rows(path: Path) -> list[dict]:
 
 def _method_style(method: str) -> tuple[str, str]:
     color = "#4E79A7" if method.startswith("Ob") else "#E15759"
-    hatch = "//" if method.endswith("Ron") else ""
+    hatch = "//" if method.endswith("Hp") else ""
     return color, hatch
 
 
@@ -90,7 +90,7 @@ def _plot_heatmap(rows: list[dict], out_path: Path) -> None:
     ax.set_xticklabels(labels, rotation=30, ha="right")
     ax.set_yticks(np.arange(len(methods)))
     ax.set_yticklabels(methods)
-    ax.set_title("Full evaluation summary heatmap")
+    ax.set_title("Full 2x2 evaluation summary heatmap")
     for i in range(arr.shape[0]):
         for j in range(arr.shape[1]):
             ax.text(j, i, f"{arr[i, j]:.3f}", ha="center", va="center", fontsize=8)

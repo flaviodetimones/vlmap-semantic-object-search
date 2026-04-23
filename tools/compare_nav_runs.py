@@ -255,6 +255,7 @@ def parse_manifest(path: Path) -> List[dict]:
         row["tags"] = "|".join(entry.get("tags", []))
         row["entrypoint"] = manifest.get("entrypoint", "")
         row["heatmap_mode"] = manifest.get("heatmap_mode", "")
+        row["yoloe_conf_thresh"] = manifest.get("yoloe_conf_thresh")
         row["room_aware"] = room_aware
         row["policy_mode"] = manifest.get("policy_mode", "")
         row["scene_id"] = manifest.get("scene_id")
@@ -416,8 +417,8 @@ def main() -> None:
     write_markdown(rows, args.out_md)
     if use_manifests:
         header = (
-            f"Baseline: heatmap={baseline_meta.get('heatmap_mode', '-')}, room_aware={baseline_meta.get('room_aware', '-')}\n"
-            f"Executor: heatmap={executor_meta.get('heatmap_mode', '-')}, room_aware={executor_meta.get('room_aware', '-')}\n\n"
+            f"Baseline: heatmap={baseline_meta.get('heatmap_mode', '-')}, yoloe_conf_thresh={baseline_meta.get('yoloe_conf_thresh', '-')}, room_aware={baseline_meta.get('room_aware', '-')}\n"
+            f"Executor: heatmap={executor_meta.get('heatmap_mode', '-')}, yoloe_conf_thresh={executor_meta.get('yoloe_conf_thresh', '-')}, room_aware={executor_meta.get('room_aware', '-')}\n\n"
         )
         args.out_md.write_text(header + args.out_md.read_text(encoding="utf-8"), encoding="utf-8")
     print(f"Wrote CSV: {args.out_csv}")

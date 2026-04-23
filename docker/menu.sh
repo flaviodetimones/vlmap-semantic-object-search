@@ -147,7 +147,7 @@ run_testing_menu() {
         echo "  │         Testing / Evaluation  [$DS_LABEL]$([ "$DS_LABEL" = "MP3D" ] && echo "           " || echo "          ")│"
         echo "  ├─────────────────────────────────────────────────┤"
         echo "  │  1) Generate test set                           │"
-        echo "  │  2) Compare full pipeline (6 methods)           │"
+        echo "  │  2) Compare full 2x2 pipeline                   │"
         echo "  │  3) Heatmap-only offline analysis               │"
         echo "  │  b) Back                                        │"
         echo "  └─────────────────────────────────────────────────┘"
@@ -197,7 +197,7 @@ run_testing_menu() {
                     echo "  Full pipeline comparison is currently HSSD-only."
                     echo "  Switch to HSSD from the dataset menu."
                 elif [ -z "$OPENAI_API_KEY" ]; then
-                    echo "  WARNING: OPENAI_API_KEY is not set. Set it before running the full 6-method comparison."
+                    echo "  WARNING: OPENAI_API_KEY is not set. Set it before running the 2x2 comparison."
                 else
                     echo "  Available scenes [$DS_LABEL]:"
                     echo "  ─────────────────────────────────────────────────"
@@ -211,10 +211,13 @@ run_testing_menu() {
                     echo -n "  Executor policy mode [heuristic|hybrid|llm] (default hybrid): "
                     read -r policy_mode
                     policy_mode=${policy_mode:-hybrid}
+                    echo -n "  YOLOE conf threshold [0.30|0.35|0.40] (default 0.30): "
+                    read -r yoloe_conf
+                    yoloe_conf=${yoloe_conf:-0.30}
                     STAMP=$(date +%Y%m%d_%H%M%S)
                     OUT_DIR="/workspace/results/eval_runs/${STAMP}"
                     echo ""
-                    echo "► Running full pipeline evaluation (6 methods)..."
+                    echo "► Running full 2x2 pipeline evaluation..."
                     echo "  Output root: $OUT_DIR"
                     cd /workspace
                     if [ -n "$eval_queries" ]; then
@@ -225,6 +228,7 @@ run_testing_menu() {
                             --data-paths "$DATA_PATHS" \
                             --scene-dataset-config-file "$HSSD_CFG" \
                             --policy-mode "$policy_mode" \
+                            --yoloe-conf-thresh "$yoloe_conf" \
                             --out "$OUT_DIR"
                     else
                         python tools/run_full_eval.py \
@@ -233,6 +237,7 @@ run_testing_menu() {
                             --data-paths "$DATA_PATHS" \
                             --scene-dataset-config-file "$HSSD_CFG" \
                             --policy-mode "$policy_mode" \
+                            --yoloe-conf-thresh "$yoloe_conf" \
                             --out "$OUT_DIR"
                     fi
                     echo ""
@@ -427,11 +432,11 @@ while true; do
                         echo ""
                         echo "    # Preferred path: use menu option 't' and choose one of:"
                         echo "    #   1) Generate test set"
-                        echo "    #   2) Compare full pipeline (6 methods)"
+                        echo "    #   2) Compare full 2x2 pipeline"
                         echo "    #   3) Heatmap-only offline analysis"
                         echo ""
                         echo "    # Direct runners from inside the container:"
-                        echo "    python /workspace/tools/run_full_eval.py --scene-ids 0 --out /workspace/results/eval_runs/demo"
+                        echo "    python /workspace/tools/run_full_eval.py --scene-ids 0 --yoloe-conf-thresh 0.30 --out /workspace/results/eval_runs/demo"
                         echo "    python /workspace/tools/run_heatmap_offline_eval.py --scene-ids 0 --out /workspace/results/eval_runs/demo"
                         else
                         echo "  All scripts use Hydra. Run them from inside the container."
