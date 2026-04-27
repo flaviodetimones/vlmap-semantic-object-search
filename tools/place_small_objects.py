@@ -108,9 +108,39 @@ def _available_object_handles(metadata_csv: Path) -> Set[str]:
     }
 
 
+# ── Extra category → template hash mappings ─────────────────────────────────
+#
+# `object_categories_filtered.csv` ships only the YCB-style identifiers
+# (e.g. `Laptop_1`, `Laptop_24`) for some categories. These IDs do not have
+# `.object_config.json` files in HSSD, so the on-disk filter strips them
+# entirely and the placer cannot insert a laptop. Many actual laptop assets
+# DO ship with full configs but live under the regular HSSD furniture
+# objects/ tree under their hash IDs.
+#
+# This table re-injects those hash IDs as extra catalog entries for the
+# affected categories. Entries whose `.object_config.json` is missing on
+# disk are dropped by the same `_available_object_handles` filter, so this
+# map is safe to extend optimistically.
+_EXTRA_CATALOG: Dict[str, List[str]] = {
+    "laptop": [
+        # Curated laptop hashes that ship with both .glb and .object_config.json.
+        # First entry wins via _safe_template_for_category's deterministic sort.
+        "00b3040d6d75d68ba6d1bdf96e31c6b8432cbc1f",  # Toshiba Satellite Laptop
+        "688e8dde29b7a0f6d35a36a478f05050b2e5c262",  # intel celeron 15.4in
+        "f2659098f38a17e014343c77fd9affaaaea2f84b",  # Computer Laptop
+        "61304cfe7c7c7c57463ac6297b6e02cf622cbf75",  # Sony Vaio
+        "588ddc58a77c05c0a8d92232d30b6b197663dbdf",  # HP Pavilion
+        "cd743d72e27ab591706521942259495acd8a819a",  # Toshiba L300D
+        "c0fa43b54bd550bd1cdb93ef4d97b57ce585fc19",  # Apple MacBook Pro 17"
+        "8cad457393cf850f77738f647a8c5e445176d881",  # Apple MacBook Pro 15.4"
+    ],
+}
+
+
 def _load_object_catalog(metadata_csv: Path) -> Dict[str, List[str]]:
     """Return ``{clean_category: [template_id, ...]}`` from the small-object
-    pickable catalog (``object_categories_filtered.csv``)."""
+    pickable catalog (``object_categories_filtered.csv``), augmented with
+    the curated extras in ``_EXTRA_CATALOG``."""
     cat_to_ids: Dict[str, List[str]] = defaultdict(list)
     available = _available_object_handles(metadata_csv)
     with metadata_csv.open("r", encoding="utf-8") as f:
@@ -119,6 +149,15 @@ def _load_object_catalog(metadata_csv: Path) -> Dict[str, List[str]]:
             tid = row.get("id", "").strip()
             if cat and tid and (not available or tid in available):
                 cat_to_ids[cat].append(tid)
+    # Merge extras (skip ones that are already present and skip missing assets).
+    for cat, extra_ids in _EXTRA_CATALOG.items():
+        existing = set(cat_to_ids.get(cat, []))
+        for tid in extra_ids:
+            if tid in existing:
+                continue
+            if available and tid not in available:
+                continue
+            cat_to_ids[cat].append(tid)
     return cat_to_ids
 
 
@@ -235,12 +274,14 @@ def _matches_room_hint(detected_room: Optional[str], hint: Optional[str]) -> boo
 #      deterministic XZ offset on the surface so the new object stands
 #      next to the previous one instead of inside it.
 #
-# Offsets are chosen on a 35 cm grid (most HSSD counters/tables span >1 m,
-# so up to ~5 distinct objects fit comfortably). Floor placements use a
-# wider 80 cm grid because room centroids have plenty of room.
+# Offsets are chosen on a 35 cm grid for furniture (most HSSD counters and
+# tables span >1 m, so up to ~5 distinct objects fit comfortably). Floor
+# placements use a smaller 30 cm grid: a wider step would push the placed
+# object far from the room centroid where the navigator stops, and the
+# robot would not see it during the verification scan.
 
 _FURNITURE_OFFSET_STEP_M = 0.35
-_FLOOR_OFFSET_STEP_M = 0.80
+_FLOOR_OFFSET_STEP_M = 0.30
 
 
 def _grid_offset(n: int, step: float) -> Tuple[float, float]:
