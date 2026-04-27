@@ -57,7 +57,7 @@ import json
 import sys
 from collections import defaultdict
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 
 # Approximate "top of furniture" Y offsets (metres). HSSD furniture
@@ -97,15 +97,27 @@ def _normalize_furniture_label(label: str) -> str:
     return _FURNITURE_ALIASES.get(s, s)
 
 
+def _available_object_handles(metadata_csv: Path) -> Set[str]:
+    dataset_root = metadata_csv.resolve().parents[1]
+    objects_root = dataset_root / "objects"
+    if not objects_root.exists():
+        return set()
+    return {
+        p.name[: -len(".object_config.json")]
+        for p in objects_root.rglob("*.object_config.json")
+    }
+
+
 def _load_object_catalog(metadata_csv: Path) -> Dict[str, List[str]]:
     """Return ``{clean_category: [template_id, ...]}`` from the small-object
     pickable catalog (``object_categories_filtered.csv``)."""
     cat_to_ids: Dict[str, List[str]] = defaultdict(list)
+    available = _available_object_handles(metadata_csv)
     with metadata_csv.open("r", encoding="utf-8") as f:
         for row in csv.DictReader(f):
             cat = row.get("clean_category", "").strip().lower()
             tid = row.get("id", "").strip()
-            if cat and tid:
+            if cat and tid and (not available or tid in available):
                 cat_to_ids[cat].append(tid)
     return cat_to_ids
 
@@ -208,6 +220,89 @@ def _matches_room_hint(detected_room: Optional[str], hint: Optional[str]) -> boo
     return hint_lower == base or hint_lower in detected_room
 
 
+# ── Spatial deconfliction for placements that share a host ──────────────────
+#
+# Multiple spec entries (bottle, kettle, toaster, ...) often request the same
+# furniture+room (counter+kitchen). The deterministic candidate sort would
+# pick the SAME first counter for all of them, stacking objects at identical
+# (x, fy+height, z). Habitat then collapses them visually: only the topmost
+# template renders cleanly, the others are occluded inside it. YOLOE never
+# sees the buried instances.
+#
+# Fix: track host usage across the whole placement run so that:
+#   1. fresh hosts (never used) are preferred over already-used ones.
+#   2. when a host MUST be reused (no other candidates), apply a small
+#      deterministic XZ offset on the surface so the new object stands
+#      next to the previous one instead of inside it.
+#
+# Offsets are chosen on a 35 cm grid (most HSSD counters/tables span >1 m,
+# so up to ~5 distinct objects fit comfortably). Floor placements use a
+# wider 80 cm grid because room centroids have plenty of room.
+
+_FURNITURE_OFFSET_STEP_M = 0.35
+_FLOOR_OFFSET_STEP_M = 0.80
+
+
+def _grid_offset(n: int, step: float) -> Tuple[float, float]:
+    """Return a deterministic (dx, dz) offset for the n-th re-use of a host.
+
+    Pattern (origin first, then four cardinal at +step, then four diagonals,
+    then expand to 2*step ring, ...):
+      n=0 → (0, 0)         centred
+      n=1 → (+s, 0)        +X
+      n=2 → (-s, 0)        -X
+      n=3 → ( 0,+s)        +Z
+      n=4 → ( 0,-s)        -Z
+      n=5 → (+s,+s)        diagonal
+      n=6 → (-s,-s)
+      n=7 → (+s,-s)
+      n=8 → (-s,+s)
+      n=9+ → (±2s, 0) ring (rare; spec count would have to exceed 9 reuses)
+    """
+    pattern = [
+        (0, 0), (1, 0), (-1, 0), (0, 1), (0, -1),
+        (1, 1), (-1, -1), (1, -1), (-1, 1),
+        (2, 0), (-2, 0), (0, 2), (0, -2),
+    ]
+    if n < len(pattern):
+        ix, iz = pattern[n]
+    else:
+        # Spiral fallback for very dense reuse: never expected in practice.
+        ring = 1 + ((n - len(pattern)) // 4)
+        side = (n - len(pattern)) % 4
+        ix, iz = [(ring, 0), (0, ring), (-ring, 0), (0, -ring)][side]
+    return (ix * step, iz * step)
+
+
+def _candidate_host_key(
+    candidate: Any,
+    furn_cat: str,
+    room_id: Optional[str],
+) -> Tuple[Any, ...]:
+    """Stable key used to detect host re-use across spec entries."""
+    if furn_cat == "floor":
+        # Floor candidates come back as (translation_list, room_id).
+        x, _y, z = (round(float(v), 2) for v in candidate)
+        return ("floor", room_id or "?", x, z)
+    tid = _instance_template_id(candidate)
+    fx, _fy, fz = (round(float(v), 2) for v in candidate.get("translation", [0, 0, 0]))
+    return (tid, fx, fz)
+
+
+def _reorder_candidates_fresh_first(
+    candidates: List[Tuple[Any, Optional[str]]],
+    used_host_keys: set,
+    furn_cat: str,
+) -> List[Tuple[Any, Optional[str]]]:
+    """Move never-used hosts to the front while preserving relative order."""
+    fresh: List[Tuple[Any, Optional[str]]] = []
+    reused: List[Tuple[Any, Optional[str]]] = []
+    for cand, room_id in candidates:
+        key = _candidate_host_key(cand, furn_cat, room_id)
+        (reused if key in used_host_keys else fresh).append((cand, room_id))
+    return fresh + reused
+
+
 def _select_furniture_candidates(
     instances: List[Dict[str, Any]],
     template_to_cat: Dict[str, str],
@@ -234,6 +329,30 @@ def _select_furniture_candidates(
     return out
 
 
+def _polygon_centroid(poly_xz: List[Tuple[float, float]]) -> Optional[Tuple[float, float]]:
+    if not poly_xz:
+        return None
+    xs = [p[0] for p in poly_xz]
+    zs = [p[1] for p in poly_xz]
+    return (sum(xs) / len(xs), sum(zs) / len(zs))
+
+
+def _select_floor_candidates(
+    room_hint: Optional[str],
+    rooms: Dict[str, List[Tuple[float, float]]],
+) -> List[Tuple[List[float], str]]:
+    out: List[Tuple[List[float], str]] = []
+    for room_id, poly in sorted(rooms.items()):
+        if not _matches_room_hint(room_id, room_hint):
+            continue
+        centroid = _polygon_centroid(poly)
+        if centroid is None:
+            continue
+        x, z = centroid
+        out.append(([float(x), 0.02, float(z)], room_id))
+    return out
+
+
 def _build_object_instance(
     template_id: str,
     translation: List[float],
@@ -245,6 +364,23 @@ def _build_object_instance(
         "non_uniform_scale": [1.0, 1.0, 1.0],
         "motion_type": "STATIC",
     }
+
+
+def _instance_already_present(
+    instances: List[Dict[str, Any]],
+    template_id: str,
+    translation: List[float],
+    tol: float = 1e-4,
+) -> bool:
+    for inst in instances:
+        if str(inst.get("template_name", "")).split("/")[-1].strip() != template_id:
+            continue
+        current = [float(v) for v in inst.get("translation", [0.0, 0.0, 0.0])]
+        if len(current) != 3:
+            continue
+        if all(abs(a - b) <= tol for a, b in zip(current, translation)):
+            return True
+    return False
 
 
 def _safe_template_for_category(
@@ -331,8 +467,13 @@ def main() -> None:
 
     scene = json.loads(args.scene.read_text(encoding="utf-8"))
     instances: List[Dict[str, Any]] = scene.setdefault("object_instances", [])
+    articulated_instances: List[Dict[str, Any]] = scene.get("articulated_object_instances", [])
+    host_instances: List[Dict[str, Any]] = list(instances) + list(articulated_instances)
     n_existing = len(instances)
-    print(f"Scene has {n_existing} existing object instances")
+    print(
+        f"Scene has {n_existing} existing object instances "
+        f"(hosts available: {len(host_instances)})"
+    )
 
     queries: List[Dict[str, Any]] = []
     inserted: List[Dict[str, Any]] = []
@@ -343,14 +484,19 @@ def main() -> None:
         "scene_name", args.scene.name.replace(".scene_instance.json", "_0")
     )
 
+    # Track host re-use across the whole placement pass to prevent stacking.
+    used_host_keys: set = set()
+    host_reuse_count: Dict[Tuple[Any, ...], int] = {}
+
     for entry in placements:
         obj_cat = str(entry.get("object", "")).strip().lower()
+        query_target = str(entry.get("query_target", obj_cat)).strip().lower()
         furn_cat = str(entry.get("furniture", "")).strip().lower()
         room_hint = entry.get("room_hint")
         count = int(entry.get("count", 1))
         tags = list(entry.get("tags") or ["small_object"])
 
-        if not obj_cat or not furn_cat:
+        if not obj_cat or not furn_cat or not query_target:
             print(f"  [skip] entry missing object/furniture: {entry}", file=sys.stderr)
             continue
 
@@ -359,9 +505,12 @@ def main() -> None:
             print(f"  [skip] no HSSD template for object '{obj_cat}'", file=sys.stderr)
             continue
 
-        candidates = _select_furniture_candidates(
-            instances, template_to_cat, furn_cat, room_hint, rooms
-        )
+        if furn_cat == "floor":
+            candidates = _select_floor_candidates(room_hint, rooms)
+        else:
+            candidates = _select_furniture_candidates(
+                host_instances, template_to_cat, furn_cat, room_hint, rooms
+            )
         if not candidates:
             hint = f" in room '{room_hint}'" if room_hint else ""
             print(
@@ -371,11 +520,46 @@ def main() -> None:
             )
             continue
 
+        # Prefer hosts not yet used by previous placements in this pass.
+        candidates = _reorder_candidates_fresh_first(
+            candidates, used_host_keys, furn_cat
+        )
+
         chosen = candidates[: max(0, count)]
         height = _FURNITURE_HEIGHT_M.get(furn_cat, _DEFAULT_HEIGHT_M)
-        for furn_inst, room_id in chosen:
-            fx, fy, fz = (float(v) for v in furn_inst["translation"])
-            placement = [fx, fy + height, fz]
+        for candidate, room_id in chosen:
+            host_key = _candidate_host_key(candidate, furn_cat, room_id)
+            n_reuse = host_reuse_count.get(host_key, 0)
+            offset_step = (
+                _FLOOR_OFFSET_STEP_M if furn_cat == "floor" else _FURNITURE_OFFSET_STEP_M
+            )
+            offset_x, offset_z = _grid_offset(n_reuse, offset_step)
+            host_reuse_count[host_key] = n_reuse + 1
+            used_host_keys.add(host_key)
+
+            if furn_cat == "floor":
+                base = [float(v) for v in candidate]
+                placement = [base[0] + offset_x, base[1], base[2] + offset_z]
+                fx, fy, fz = base
+                host_template = None
+                host_translation = None
+            else:
+                furn_inst = candidate
+                fx, fy, fz = (float(v) for v in furn_inst["translation"])
+                placement = [fx + offset_x, fy + height, fz + offset_z]
+                host_template = _instance_template_id(furn_inst)
+                host_translation = [fx, fy, fz]
+            if n_reuse > 0:
+                print(
+                    f"  [offset] '{obj_cat}' reusing host (n={n_reuse}); "
+                    f"applying offset ({offset_x:+.2f}, {offset_z:+.2f}) m"
+                )
+            if _instance_already_present(instances, template_id, placement):
+                print(
+                    f"  [skip] '{obj_cat}' already present at {placement[:1]+placement[2:]} "
+                    f"(template='{template_id}')"
+                )
+                continue
             new_inst = _build_object_instance(template_id, placement)
             inserted.append(new_inst)
             instances.append(new_inst)
@@ -387,26 +571,28 @@ def main() -> None:
                 "id": qid,
                 "scene_id": scene_id_for_jsonl,
                 "scene_name": scene_name_for_jsonl,
-                "query": obj_cat,
+                "query": query_target,
                 "query_type": "object",
-                "target_label": obj_cat,
+                "target_label": query_target,
                 "expected_rooms": [base_room],
                 "expected_room_polygons": (
                     [{"label": base_room, "instance_idx": int(room_id.split("__")[1])}]
                     if room_id else []
                 ),
-                "tags": tags + ["placed", f"on_{furn_cat}"],
+                "tags": tags + ["placed", f"on_{furn_cat}", f"inserted_{obj_cat}"],
                 "placement": {
                     "template_id": template_id,
+                    "inserted_object": obj_cat,
+                    "query_target": query_target,
                     "translation": placement,
-                    "host_furniture_template": _instance_template_id(furn_inst),
-                    "host_furniture_translation": [fx, fy, fz],
+                    "host_furniture_template": host_template,
+                    "host_furniture_translation": host_translation,
                     "host_room_id": room_id,
                 },
             }
             queries.append(query_entry)
             print(
-                f"  [+] placed '{obj_cat}' (template '{template_id}') on "
+                f"  [+] placed '{obj_cat}' as query '{query_target}' on "
                 f"'{furn_cat}' at {placement[:1]+placement[2:]} (room='{base_room}')"
             )
 
