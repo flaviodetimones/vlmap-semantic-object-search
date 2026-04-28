@@ -1,0 +1,128 @@
+#!/usr/bin/env python3
+"""ROS-side task manager for semantic navigation.
+
+The goal is to keep the semantic/navigation contract stable across backends:
+
+- Habitat/HSSD can still do everything it does today.
+- ROS/Gazebo/HSR get a narrow interface:
+  instruction -> room ranking -> room centroid -> SemanticGoal -> 2D nav goal
+
+This node intentionally does *not* depend on Habitat or the VLMaps runtime.
+"""
+
+from __future__ import annotations
+
+import json
+
+from geometry_msgs.msg import PoseStamped
+import rospy
+from std_msgs.msg import String
+
+from vlmap_msgs.msg import SemanticGoal
+from vlmap_msgs.srv import QueryRoom, ResolveRoom
+from vlmap_task_manager import parse_instruction
+
+
+def _make_pose(x: float, y: float, frame_id: str) -> PoseStamped:
+    pose = PoseStamped()
+    pose.header.stamp = rospy.Time.now()
+    pose.header.frame_id = frame_id
+    pose.pose.position.x = float(x)
+    pose.pose.position.y = float(y)
+    pose.pose.orientation.w = 1.0
+    return pose
+
+
+def main() -> None:
+    rospy.init_node("vlmap_task_manager", anonymous=False)
+    frame_id = rospy.get_param("~goal_frame", "map")
+    instruction_topic = rospy.get_param("~instruction_topic", "/vlmap/instruction")
+    semantic_goal_topic = rospy.get_param("~semantic_goal_topic", "/vlmap/semantic_goal")
+    nav_goal_topic = rospy.get_param("~nav_goal_topic", "/move_base_simple/goal")
+
+    rospy.wait_for_service("/vlmap/query_room")
+    rospy.wait_for_service("/vlmap/resolve_room")
+    query_room = rospy.ServiceProxy("/vlmap/query_room", QueryRoom)
+    resolve_room = rospy.ServiceProxy("/vlmap/resolve_room", ResolveRoom)
+
+    pub = rospy.Publisher("/vlmap/heartbeat", String, queue_size=10)
+    semantic_pub = rospy.Publisher(semantic_goal_topic, SemanticGoal, queue_size=10)
+    nav_pub = rospy.Publisher(nav_goal_topic, PoseStamped, queue_size=10)
+
+    def _handle_instruction(msg: String):
+        parsed = parse_instruction(msg.data)
+        if not parsed.target:
+            rospy.logwarn("[vlmap_task_manager] empty instruction after parsing: %r", msg.data)
+            return
+
+        room_id = ""
+        room_score = None
+        if parsed.explicit_room:
+            room_resp = resolve_room(parsed.explicit_room)
+            if room_resp.found:
+                room_id = room_resp.room_id
+                room_pose = _make_pose(room_resp.x, room_resp.y, frame_id)
+            else:
+                rospy.logwarn(
+                    "[vlmap_task_manager] explicit room %r could not be resolved",
+                    parsed.explicit_room,
+                )
+                return
+        else:
+            ranking = query_room(parsed.target)
+            if not ranking.rooms:
+                rospy.logwarn(
+                    "[vlmap_task_manager] no room ranking returned for target %r",
+                    parsed.target,
+                )
+                return
+            room_id = ranking.rooms[0]
+            room_score = float(ranking.scores[0]) if ranking.scores else None
+            room_resp = resolve_room(room_id)
+            if not room_resp.found:
+                rospy.logwarn(
+                    "[vlmap_task_manager] ranked room %r could not be resolved",
+                    room_id,
+                )
+                return
+            room_pose = _make_pose(room_resp.x, room_resp.y, frame_id)
+
+        metadata = {
+            "raw_instruction": parsed.raw_text,
+            "parsed_target": parsed.target,
+            "explicit_room": parsed.explicit_room,
+            "selected_room": room_id,
+        }
+        if room_score is not None:
+            metadata["selected_room_score"] = room_score
+
+        semantic_msg = SemanticGoal()
+        semantic_msg.type = "ROOM"
+        semantic_msg.map_pose = room_pose
+        semantic_msg.room_id = room_id
+        semantic_msg.object_class = parsed.target
+        semantic_msg.metadata = json.dumps(metadata, sort_keys=True)
+        semantic_pub.publish(semantic_msg)
+        nav_pub.publish(room_pose)
+        rospy.loginfo(
+            "[vlmap_task_manager] %r -> room=%s target=%s pose=(%.2f, %.2f)",
+            parsed.raw_text,
+            room_id,
+            parsed.target,
+            room_pose.pose.position.x,
+            room_pose.pose.position.y,
+        )
+
+    rospy.Subscriber(instruction_topic, String, _handle_instruction, queue_size=10)
+    rospy.loginfo("[vlmap_task_manager] semantic goal bridge ready")
+    rate = rospy.Rate(1.0)
+    while not rospy.is_shutdown():
+        pub.publish(String(data="vlmap_task_manager alive semantic-goals=yes"))
+        rate.sleep()
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except rospy.ROSInterruptException:
+        pass

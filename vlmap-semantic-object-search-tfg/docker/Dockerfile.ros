@@ -1,0 +1,56 @@
+# ROS 1 Noetic container for the TFG migration (Sprint 1 scaffolding).
+#
+# Holds the ROS / Gazebo navigation stack only. Heavy dependencies
+# (Habitat-Sim, CLIP, YOLOE) stay inside the existing tfg-sim container.
+# The two containers communicate via rosbridge over the Docker network in
+# Sprint 2; for now this image just hosts the workspace skeleton and the
+# move_base / Gazebo Classic stack required by Sprint 1.
+
+FROM osrf/ros:noetic-desktop-full-focal
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV TZ=Europe/Madrid
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    bash-completion \
+    build-essential \
+    git \
+    nano \
+    python3-pip \
+    python3-rosdep \
+    python3-catkin-tools \
+    ros-noetic-gazebo-ros-pkgs \
+    ros-noetic-gazebo-ros-control \
+    ros-noetic-move-base \
+    ros-noetic-map-server \
+    ros-noetic-costmap-2d \
+    ros-noetic-base-local-planner \
+    ros-noetic-dwa-local-planner \
+    ros-noetic-tf2-ros \
+    ros-noetic-tf2-tools \
+    ros-noetic-rviz \
+    ros-noetic-cv-bridge \
+    ros-noetic-rosbridge-suite \
+    ros-noetic-amcl \
+    ros-noetic-robot-state-publisher \
+    ros-noetic-joint-state-publisher \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN python3 -m pip install --no-cache-dir \
+    numpy \
+    opencv-python-headless \
+    roslibpy \
+    pyyaml
+
+# Initialise rosdep DB (the base image already has rosdep init).
+RUN rosdep update --rosdistro noetic || true
+
+# Workspace mount point (see docker-compose volume `../ros_ws:/ros_ws`).
+WORKDIR /ros_ws
+
+# Copy entrypoint that sources ROS + workspace overlays.
+COPY entrypoint_ros.sh /entrypoint_ros.sh
+RUN chmod +x /entrypoint_ros.sh
+
+ENTRYPOINT ["/entrypoint_ros.sh"]
+CMD ["bash"]

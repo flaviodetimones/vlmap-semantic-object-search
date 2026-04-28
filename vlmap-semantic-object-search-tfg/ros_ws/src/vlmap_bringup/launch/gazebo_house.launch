@@ -1,0 +1,22 @@
+<?xml version="1.0"?>
+<!--
+  Sprint 2 placeholder. Brings up Gazebo Classic with a house world and a
+  generic mobile base (TurtleBot3 burger by default — swap for HSR-sim
+  when its Noetic packaging is verified).
+  Currently parametrised but the world/robot files are not bundled in
+  Sprint 1; users will see Gazebo crash if they launch this without
+  installing the world. Kept as a stub so the launch namespace is reserved.
+-->
+<launch>
+  <arg name="world" default="$(find gazebo_ros)/worlds/empty.world"/>
+  <arg name="paused" default="false"/>
+  <arg name="gui" default="true"/>
+
+  <include file="$(find gazebo_ros)/launch/empty_world.launch">
+    <arg name="world_name" value="$(arg world)"/>
+    <arg name="paused" value="$(arg paused)"/>
+    <arg name="gui" value="$(arg gui)"/>
+  </include>
+
+  <!-- TODO Sprint 2: spawn HSR-sim (or TurtleBot3 stand-in) and connect to move_base. -->
+</launch>

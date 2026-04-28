@@ -1,0 +1,164 @@
+#!/usr/bin/env python3
+"""File-backed Habitat <-> ROS bridge for the ROS migration.
+
+This node does not modify the HSSD/Habitat stack. Instead, it reads a serialized
+occupancy grid and an optional pose sidecar, then republishes them as standard
+ROS navigation topics. That gives the ROS container a stable contract today and
+can later be swapped for:
+
+- a live Habitat publisher
+- Gazebo topics
+- HSR hardware drivers
+"""
+
+from __future__ import annotations
+
+import math
+from pathlib import Path
+
+from geometry_msgs.msg import Quaternion, TransformStamped
+from nav_msgs.msg import MapMetaData, OccupancyGrid, Odometry
+import rospy
+from std_msgs.msg import String
+import tf2_ros
+
+from habitat_ros_bridge import (
+    MapMeta,
+    Pose2D,
+    flatten_occupancy_for_ros,
+    load_occupancy_array,
+    load_pose_json,
+)
+
+
+def _yaw_to_quaternion(yaw: float) -> Quaternion:
+    half = 0.5 * float(yaw)
+    q = Quaternion()
+    q.x = 0.0
+    q.y = 0.0
+    q.z = math.sin(half)
+    q.w = math.cos(half)
+    return q
+
+
+def _build_map_msg(occupancy, meta: MapMeta) -> OccupancyGrid:
+    msg = OccupancyGrid()
+    msg.header.frame_id = meta.frame_id
+    info = MapMetaData()
+    info.resolution = float(meta.resolution)
+    info.width = int(occupancy.shape[1])
+    info.height = int(occupancy.shape[0])
+    info.origin.position.x = float(meta.origin_x)
+    info.origin.position.y = float(meta.origin_y)
+    info.origin.orientation.w = 1.0
+    msg.info = info
+    msg.data = flatten_occupancy_for_ros(occupancy)
+    return msg
+
+
+def _build_odom_msg(pose: Pose2D, odom_frame: str, base_frame: str) -> Odometry:
+    msg = Odometry()
+    msg.header.frame_id = odom_frame
+    msg.child_frame_id = base_frame
+    msg.pose.pose.position.x = float(pose.x)
+    msg.pose.pose.position.y = float(pose.y)
+    msg.pose.pose.orientation = _yaw_to_quaternion(pose.yaw)
+    return msg
+
+
+def main() -> None:
+    rospy.init_node("habitat_ros_bridge", anonymous=False)
+    map_frame = rospy.get_param("~map_frame", "map")
+    odom_frame = rospy.get_param("~odom_frame", "odom")
+    base_frame = rospy.get_param("~base_frame", "base_link")
+    occupancy_path = rospy.get_param("~occupancy_path", "")
+    pose_path = rospy.get_param("~pose_path", "")
+    resolution = float(rospy.get_param("~map_resolution", 0.05))
+    origin_x = float(rospy.get_param("~map_origin_x", 0.0))
+    origin_y = float(rospy.get_param("~map_origin_y", 0.0))
+    pose_x = float(rospy.get_param("~pose_x", 0.0))
+    pose_y = float(rospy.get_param("~pose_y", 0.0))
+    pose_yaw = float(rospy.get_param("~pose_yaw", 0.0))
+    publish_rate_hz = float(rospy.get_param("~publish_rate_hz", 5.0))
+
+    map_pub = rospy.Publisher("/map", OccupancyGrid, queue_size=1, latch=True)
+    odom_pub = rospy.Publisher("/odom", Odometry, queue_size=1)
+    pub = rospy.Publisher("/vlmap/heartbeat", String, queue_size=10)
+    tf_pub = tf2_ros.TransformBroadcaster()
+
+    map_msg = None
+    if occupancy_path:
+        occ = load_occupancy_array(occupancy_path)
+        map_meta = MapMeta(
+            resolution=resolution,
+            origin_x=origin_x,
+            origin_y=origin_y,
+            frame_id=map_frame,
+        )
+        map_msg = _build_map_msg(occ, map_meta)
+        map_pub.publish(map_msg)
+        rospy.loginfo(
+            "[habitat_ros_bridge] published /map from %s (%dx%d @ %.3fm/cell)",
+            occupancy_path,
+            occ.shape[1],
+            occ.shape[0],
+            resolution,
+        )
+
+    pose = Pose2D(pose_x, pose_y, pose_yaw, frame_id=map_frame)
+    last_pose_mtime = None
+    if pose_path and Path(pose_path).exists():
+        last_pose_mtime = Path(pose_path).stat().st_mtime
+        pose = load_pose_json(pose_path)
+
+    rate = rospy.Rate(max(0.5, publish_rate_hz))
+    while not rospy.is_shutdown():
+        if pose_path:
+            pose_file = Path(pose_path)
+            if pose_file.exists():
+                mtime = pose_file.stat().st_mtime
+                if last_pose_mtime is None or mtime > last_pose_mtime:
+                    pose = load_pose_json(pose_file)
+                    last_pose_mtime = mtime
+
+        now = rospy.Time.now()
+        if map_msg is not None:
+            map_msg.header.stamp = now
+            map_pub.publish(map_msg)
+
+        odom_msg = _build_odom_msg(pose, odom_frame, base_frame)
+        odom_msg.header.stamp = now
+        odom_pub.publish(odom_msg)
+
+        t_map_odom = TransformStamped()
+        t_map_odom.header.stamp = now
+        t_map_odom.header.frame_id = map_frame
+        t_map_odom.child_frame_id = odom_frame
+        t_map_odom.transform.rotation.w = 1.0
+        tf_pub.sendTransform(t_map_odom)
+
+        t_odom_base = TransformStamped()
+        t_odom_base.header.stamp = now
+        t_odom_base.header.frame_id = odom_frame
+        t_odom_base.child_frame_id = base_frame
+        t_odom_base.transform.translation.x = float(pose.x)
+        t_odom_base.transform.translation.y = float(pose.y)
+        t_odom_base.transform.rotation = _yaw_to_quaternion(pose.yaw)
+        tf_pub.sendTransform(t_odom_base)
+
+        pub.publish(
+            String(
+                data=(
+                    f"habitat_ros_bridge alive map={'yes' if map_msg is not None else 'no'} "
+                    f"pose=({pose.x:.2f},{pose.y:.2f},{pose.yaw:.2f})"
+                )
+            )
+        )
+        rate.sleep()
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except rospy.ROSInterruptException:
+        pass

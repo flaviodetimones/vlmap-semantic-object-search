@@ -1,0 +1,15 @@
+# Resolve a room label into a concrete 2D goal in the /map frame.
+#
+# Request:
+#   room  semantic room label or alias, e.g. "kitchen", "office".
+# Response:
+#   found    whether the room could be resolved
+#   room_id  exact room label used internally by the provider
+#   x        x coordinate in the /map frame (metres)
+#   y        y coordinate in the /map frame (metres)
+string room
+---
+bool found
+string room_id
+float32 x
+float32 y

@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<package format="2">
+  <name>vlmap_bringup</name>
+  <version>0.1.0</version>
+  <description>Launch files, RViz config and parameters for the VLMap ROS stack.</description>
+  <maintainer email="mgarciablasco26@gmail.com">Mario Garcia Blasco</maintainer>
+  <license>MIT</license>
+
+  <buildtool_depend>catkin</buildtool_depend>
+
+  <exec_depend>rospy</exec_depend>
+  <exec_depend>rviz</exec_depend>
+  <exec_depend>rosbridge_server</exec_depend>
+  <exec_depend>vlmap_semantic_server</exec_depend>
+  <exec_depend>vlmap_task_manager</exec_depend>
+  <exec_depend>habitat_ros_bridge</exec_depend>
+  <exec_depend>yoloe_verifier</exec_depend>
+  <exec_depend>move_base</exec_depend>
+  <exec_depend>map_server</exec_depend>
+</package>
