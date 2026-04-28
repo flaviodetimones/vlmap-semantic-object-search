@@ -32,6 +32,44 @@ def test_hsr_launch_is_valid_xml_and_keeps_vlmap_stack():
     assert "hsrb_description" in params["robot_description"]["command"]
 
 
+def test_hsr_proxy_launch_is_valid_xml_and_dependency_free():
+    launch_path = BRINGUP / "launch" / "hsr_proxy_gazebo_move_base.launch"
+    tree = ET.parse(launch_path)
+    root = tree.getroot()
+
+    assert root.tag == "launch"
+    node_types = {(node.attrib.get("pkg"), node.attrib.get("type")) for node in root.iter("node")}
+    assert ("gazebo_ros", "spawn_model") in node_types
+    assert ("move_base", "move_base") in node_types
+    assert ("vlmap_task_manager", "vlmap_task_manager_node") in node_types
+    assert ("habitat_ros_bridge", "habitat_ros_bridge_node") in node_types
+
+    params = {param.attrib.get("name"): param.attrib for param in root.iter("param")}
+    assert params["robot_description"]["textfile"] == "$(find vlmap_bringup)/urdf/hsr_proxy.urdf"
+
+
+def test_hsr_proxy_urdf_exposes_hsr_frames_topics_and_sensors():
+    urdf_path = BRINGUP / "urdf" / "hsr_proxy.urdf"
+    tree = ET.parse(urdf_path)
+    root = tree.getroot()
+
+    links = {link.attrib["name"] for link in root.iter("link")}
+    assert "base_footprint" in links
+    assert "base_link" in links
+    assert "base_laser_link" in links
+    assert "head_rgbd_sensor_rgb_frame" in links
+
+    xml = urdf_path.read_text(encoding="utf-8")
+    assert "/hsrb/command_velocity" in xml
+    assert "/hsrb/base_scan" in xml
+    assert "libgazebo_ros_diff_drive.so" in xml
+    assert "libgazebo_ros_laser.so" in xml
+    assert "libgazebo_ros_openni_kinect.so" in xml
+    assert "rgb/image_raw" in xml
+    assert "depth_registered/image_raw" in xml
+    assert "rgb/camera_info" in xml
+
+
 def test_hsr_move_base_profile_uses_hsr_frames_and_laser_topic():
     params = yaml.safe_load((BRINGUP / "config" / "hsr_move_base_params.yaml").read_text())
 
