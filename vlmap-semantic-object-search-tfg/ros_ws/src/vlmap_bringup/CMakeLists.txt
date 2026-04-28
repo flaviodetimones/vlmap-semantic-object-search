@@ -14,6 +14,6 @@ catkin_install_python(PROGRAMS
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
 
-install(DIRECTORY launch rviz config
+install(DIRECTORY launch rviz config urdf
   DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION}
 )

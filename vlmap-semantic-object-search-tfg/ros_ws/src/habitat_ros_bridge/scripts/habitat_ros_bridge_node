@@ -18,6 +18,7 @@ from pathlib import Path
 
 from geometry_msgs.msg import Quaternion, TransformStamped
 from nav_msgs.msg import MapMetaData, OccupancyGrid, Odometry
+from nav_msgs.srv import GetMap, GetMapResponse
 import rospy
 from std_msgs.msg import String
 import tf2_ros
@@ -80,6 +81,10 @@ def main() -> None:
     pose_y = float(rospy.get_param("~pose_y", 0.0))
     pose_yaw = float(rospy.get_param("~pose_yaw", 0.0))
     publish_rate_hz = float(rospy.get_param("~publish_rate_hz", 5.0))
+    publish_map = bool(rospy.get_param("~publish_map", True))
+    serve_static_map = bool(rospy.get_param("~serve_static_map", True))
+    publish_odom = bool(rospy.get_param("~publish_odom", True))
+    publish_tf = bool(rospy.get_param("~publish_tf", True))
 
     map_pub = rospy.Publisher("/map", OccupancyGrid, queue_size=1, latch=True)
     odom_pub = rospy.Publisher("/odom", Odometry, queue_size=1)
@@ -96,7 +101,8 @@ def main() -> None:
             frame_id=map_frame,
         )
         map_msg = _build_map_msg(occ, map_meta)
-        map_pub.publish(map_msg)
+        if publish_map:
+            map_pub.publish(map_msg)
         rospy.loginfo(
             "[habitat_ros_bridge] published /map from %s (%dx%d @ %.3fm/cell)",
             occupancy_path,
@@ -104,6 +110,9 @@ def main() -> None:
             occ.shape[0],
             resolution,
         )
+        if serve_static_map:
+            rospy.Service("/static_map", GetMap, lambda _req: GetMapResponse(map=map_msg))
+            rospy.loginfo("[habitat_ros_bridge] serving /static_map from file-backed grid")
 
     pose = Pose2D(pose_x, pose_y, pose_yaw, frame_id=map_frame)
     last_pose_mtime = None
@@ -122,29 +131,31 @@ def main() -> None:
                     last_pose_mtime = mtime
 
         now = rospy.Time.now()
-        if map_msg is not None:
+        if map_msg is not None and publish_map:
             map_msg.header.stamp = now
             map_pub.publish(map_msg)
 
-        odom_msg = _build_odom_msg(pose, odom_frame, base_frame)
-        odom_msg.header.stamp = now
-        odom_pub.publish(odom_msg)
+        if publish_odom:
+            odom_msg = _build_odom_msg(pose, odom_frame, base_frame)
+            odom_msg.header.stamp = now
+            odom_pub.publish(odom_msg)
 
-        t_map_odom = TransformStamped()
-        t_map_odom.header.stamp = now
-        t_map_odom.header.frame_id = map_frame
-        t_map_odom.child_frame_id = odom_frame
-        t_map_odom.transform.rotation.w = 1.0
-        tf_pub.sendTransform(t_map_odom)
+        if publish_tf:
+            t_map_odom = TransformStamped()
+            t_map_odom.header.stamp = now
+            t_map_odom.header.frame_id = map_frame
+            t_map_odom.child_frame_id = odom_frame
+            t_map_odom.transform.rotation.w = 1.0
+            tf_pub.sendTransform(t_map_odom)
 
-        t_odom_base = TransformStamped()
-        t_odom_base.header.stamp = now
-        t_odom_base.header.frame_id = odom_frame
-        t_odom_base.child_frame_id = base_frame
-        t_odom_base.transform.translation.x = float(pose.x)
-        t_odom_base.transform.translation.y = float(pose.y)
-        t_odom_base.transform.rotation = _yaw_to_quaternion(pose.yaw)
-        tf_pub.sendTransform(t_odom_base)
+            t_odom_base = TransformStamped()
+            t_odom_base.header.stamp = now
+            t_odom_base.header.frame_id = odom_frame
+            t_odom_base.child_frame_id = base_frame
+            t_odom_base.transform.translation.x = float(pose.x)
+            t_odom_base.transform.translation.y = float(pose.y)
+            t_odom_base.transform.rotation = _yaw_to_quaternion(pose.yaw)
+            tf_pub.sendTransform(t_odom_base)
 
         pub.publish(
             String(

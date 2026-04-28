@@ -9,38 +9,60 @@ controller_frequency: 10.0
 planner_frequency: 1.0
 recovery_behavior_enabled: true
 clearing_rotation_allowed: true
+shutdown_costmaps: false
+footprint: [[0.23, 0.17], [0.23, -0.17], [-0.23, -0.17], [-0.23, 0.17]]
 
 global_costmap:
   global_frame: map
   robot_base_frame: base_link
   update_frequency: 1.0
   publish_frequency: 0.5
+  transform_tolerance: 0.5
   static_map: true
   rolling_window: false
+  track_unknown_space: false
+  plugins:
+    - {name: static_layer, type: "costmap_2d::StaticLayer"}
+    - {name: inflation_layer, type: "costmap_2d::InflationLayer"}
+  static_layer:
+    map_topic: /map
+    subscribe_to_updates: false
   inflation_radius: 0.55
-  obstacle_range: 3.0
-  raytrace_range: 4.0
-  observation_sources: scan
-  scan:
-    sensor_frame: laser
-    data_type: LaserScan
-    topic: /scan
-    marking: true
-    clearing: true
+  inflation_layer:
+    inflation_radius: 0.55
 
 local_costmap:
   global_frame: odom
   robot_base_frame: base_link
   update_frequency: 5.0
   publish_frequency: 2.0
+  transform_tolerance: 0.5
   static_map: false
   rolling_window: true
   width: 4.0
   height: 4.0
   resolution: 0.05
+  track_unknown_space: false
+  plugins:
+    - {name: obstacle_layer, type: "costmap_2d::ObstacleLayer"}
+    - {name: inflation_layer, type: "costmap_2d::InflationLayer"}
+  obstacle_layer:
+    obstacle_range: 3.0
+    raytrace_range: 4.0
+    observation_sources: scan
+    scan:
+      sensor_frame: laser
+      data_type: LaserScan
+      topic: /scan
+      marking: true
+      clearing: true
+      inf_is_valid: true
   inflation_radius: 0.45
+  inflation_layer:
+    inflation_radius: 0.45
 
 DWAPlannerROS:
+  meter_scoring: true
   acc_lim_x: 1.0
   acc_lim_y: 0.0
   acc_lim_theta: 1.5
@@ -51,4 +73,8 @@ DWAPlannerROS:
   min_in_place_vel_theta: 0.4
   holonomic_robot: false
   yaw_goal_tolerance: 0.2
-  xy_goal_tolerance: 0.2
+  xy_goal_tolerance: 0.25
+  latch_xy_goal_tolerance: true
+  sim_time: 1.5
+  vx_samples: 10
+  vtheta_samples: 20

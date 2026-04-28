@@ -1,0 +1,78 @@
+<?xml version="1.0"?>
+<!--
+  Gazebo + real move_base smoke launch.
+
+  This is the first moving-robot integration point for the ROS stack. It uses a
+  small differential-drive robot as a stand-in until the HSR Noetic simulator is
+  available. The semantic pipeline stays unchanged: it sends SemanticGoal over
+  rosbridge and receives /vlmap/navigation_result back from move_base.
+-->
+<launch>
+  <arg name="world" default="$(find gazebo_ros)/worlds/empty.world"/>
+  <arg name="paused" default="false"/>
+  <arg name="gui" default="false"/>
+  <arg name="use_rosbridge" default="true"/>
+  <arg name="use_rviz" default="false"/>
+  <arg name="occupancy_path" default="$(find vlmap_bringup)/config/empty_10m_map.json"/>
+  <arg name="room_centroids_path" default="$(find vlmap_bringup)/config/demo_room_centroids.json"/>
+  <arg name="map_resolution" default="0.5"/>
+  <arg name="map_origin_x" default="-5.0"/>
+  <arg name="map_origin_y" default="-5.0"/>
+  <arg name="robot_x" default="0.0"/>
+  <arg name="robot_y" default="0.0"/>
+  <arg name="robot_z" default="0.05"/>
+  <arg name="robot_yaw" default="0.0"/>
+
+  <include file="$(find gazebo_ros)/launch/empty_world.launch">
+    <arg name="world_name" value="$(arg world)"/>
+    <arg name="paused" value="$(arg paused)"/>
+    <arg name="gui" value="$(arg gui)"/>
+  </include>
+
+  <param name="robot_description" textfile="$(find vlmap_bringup)/urdf/simple_diffbot.urdf"/>
+  <node pkg="gazebo_ros" type="spawn_model" name="spawn_simple_diffbot" output="screen"
+        args="-urdf -param robot_description -model vlmap_simple_diffbot -x $(arg robot_x) -y $(arg robot_y) -z $(arg robot_z) -Y $(arg robot_yaw)"/>
+  <node pkg="robot_state_publisher" type="robot_state_publisher" name="robot_state_publisher"/>
+  <node pkg="tf" type="static_transform_publisher" name="map_to_odom"
+        args="0 0 0 0 0 0 map odom 100"/>
+
+  <group if="$(arg use_rosbridge)">
+    <include file="$(find rosbridge_server)/launch/rosbridge_websocket.launch">
+      <arg name="port" value="9090"/>
+    </include>
+  </group>
+
+  <node pkg="vlmap_semantic_server" type="vlmap_semantic_server_node"
+        name="vlmap_semantic_server" output="screen">
+    <param name="occupancy_path" value="$(arg occupancy_path)"/>
+    <param name="room_centroids_path" value="$(arg room_centroids_path)"/>
+    <param name="map_resolution" value="$(arg map_resolution)"/>
+    <param name="map_origin_x" value="$(arg map_origin_x)"/>
+    <param name="map_origin_y" value="$(arg map_origin_y)"/>
+  </node>
+
+  <node pkg="habitat_ros_bridge" type="habitat_ros_bridge_node"
+        name="map_static_bridge" output="screen">
+    <param name="occupancy_path" value="$(arg occupancy_path)"/>
+    <param name="map_resolution" value="$(arg map_resolution)"/>
+    <param name="map_origin_x" value="$(arg map_origin_x)"/>
+    <param name="map_origin_y" value="$(arg map_origin_y)"/>
+    <param name="publish_map" value="true"/>
+    <param name="serve_static_map" value="true"/>
+    <param name="publish_odom" value="false"/>
+    <param name="publish_tf" value="false"/>
+  </node>
+
+  <node pkg="vlmap_task_manager" type="vlmap_task_manager_node"
+        name="vlmap_task_manager" output="screen"/>
+  <node pkg="vlmap_task_manager" type="vlmap_navigation_result_node"
+        name="vlmap_navigation_result_bridge" output="screen"/>
+  <node pkg="yoloe_verifier" type="yoloe_verifier_node"
+        name="yoloe_verifier" output="screen"/>
+
+  <rosparam command="load" ns="move_base" file="$(find vlmap_bringup)/config/move_base_params.yaml"/>
+  <node pkg="move_base" type="move_base" name="move_base" output="screen"/>
+
+  <node if="$(arg use_rviz)" pkg="rviz" type="rviz" name="rviz"
+        args="-d $(find vlmap_bringup)/rviz/minimal.rviz" required="false"/>
+</launch>
