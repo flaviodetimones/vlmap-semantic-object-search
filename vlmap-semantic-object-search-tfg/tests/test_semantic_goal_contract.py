@@ -183,6 +183,8 @@ def test_ros_backend_maps_move_base_results_to_oldest_pending_goal():
         message_factory=lambda payload: payload,
         uuid_factory=lambda: "tok-move-base",
         sleep_fn=lambda _secs: None,
+        result_topic="/move_base/result",
+        result_topic_type="move_base_msgs/MoveBaseActionResult",
     )
     token = backend.submit_goal(SemanticGoal(type=GoalType.APPROACH, map_pose=(3.0, 4.0)))
 
