@@ -17,5 +17,6 @@ catkin_package(
 
 catkin_install_python(PROGRAMS
   scripts/vlmap_task_manager_node
+  scripts/vlmap_navigation_result_node
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )

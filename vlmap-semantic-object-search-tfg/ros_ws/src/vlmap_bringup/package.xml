@@ -8,7 +8,10 @@
 
   <buildtool_depend>catkin</buildtool_depend>
 
-  <exec_depend>rospy</exec_depend>
+  <depend>rospy</depend>
+  <exec_depend>actionlib_msgs</exec_depend>
+  <exec_depend>geometry_msgs</exec_depend>
+  <exec_depend>move_base_msgs</exec_depend>
   <exec_depend>rviz</exec_depend>
   <exec_depend>rosbridge_server</exec_depend>
   <exec_depend>vlmap_semantic_server</exec_depend>
