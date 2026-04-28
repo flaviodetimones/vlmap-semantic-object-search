@@ -33,7 +33,7 @@ def _clone_or_update(dst: Path, url: str, *, depth: int) -> None:
     _run(["git", "clone", "--depth", str(depth), url, str(dst)])
 
 
-def _patch_common_xacro(hsr_description_dir: Path) -> None:
+def _patch_hsr_description_for_noetic(hsr_description_dir: Path) -> None:
     common = hsr_description_dir / "urdf" / "common.xacro"
     text = common.read_text(encoding="utf-8")
     replacements = {
@@ -50,6 +50,14 @@ def _patch_common_xacro(hsr_description_dir: Path) -> None:
     else:
         print(f"No xacro compatibility patch needed for {common}")
 
+    for xacro_file in hsr_description_dir.rglob("*.xacro"):
+        text = xacro_file.read_text(encoding="utf-8")
+        patched = text.replace("<insert_block ", "<xacro:insert_block ")
+        patched = patched.replace("</insert_block>", "</xacro:insert_block>")
+        if patched != text:
+            xacro_file.write_text(patched, encoding="utf-8")
+            print(f"Patched xacro insert_block syntax in {xacro_file}")
+
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
@@ -65,7 +73,7 @@ def main() -> int:
     external = args.workspace / "src" / "external"
     for name, url in REPOS.items():
         _clone_or_update(external / name, url, depth=args.depth)
-    _patch_common_xacro(external / "hsr_description")
+    _patch_hsr_description_for_noetic(external / "hsr_description")
 
     print("\nNext validation:")
     print("  docker exec tfg-ros bash -lc 'cd /ros_ws && catkin build'")
