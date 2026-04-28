@@ -1,0 +1,105 @@
+#!/usr/bin/env python3
+"""Check whether the ROS container can launch the HSR Gazebo profile."""
+
+from __future__ import annotations
+
+import argparse
+from dataclasses import dataclass
+from typing import Iterable, List
+
+
+@dataclass(frozen=True)
+class PackageCheck:
+    name: str
+    required: bool
+    reason: str
+
+
+PACKAGE_CHECKS: List[PackageCheck] = [
+    PackageCheck("gazebo_ros", True, "Gazebo Classic ROS integration"),
+    PackageCheck("move_base", True, "ROS navigation action server"),
+    PackageCheck("rosbridge_server", True, "WebSocket bridge from tfg-sim"),
+    PackageCheck("robot_state_publisher", True, "URDF TF publication"),
+    PackageCheck("xacro", True, "HSR URDF generation"),
+    PackageCheck("vlmap_bringup", True, "Project launch/config package"),
+    PackageCheck("vlmap_semantic_server", True, "Room resolution service"),
+    PackageCheck("vlmap_task_manager", True, "SemanticGoal publisher"),
+    PackageCheck("habitat_ros_bridge", True, "File-backed map bridge"),
+    PackageCheck("yoloe_verifier", True, "Visual verification endpoint"),
+    PackageCheck("hsrb_description", True, "Toyota HSR robot description"),
+    PackageCheck("hsrb_gazebo_launch", False, "Toyota HSR Gazebo launch helpers"),
+    PackageCheck("tmc_gazebo_worlds", False, "Toyota/TMC Gazebo worlds"),
+    PackageCheck("tmc_wrs_gazebo_worlds", False, "WRS domestic Gazebo worlds"),
+    PackageCheck("hsrb_moveit_config", False, "Later manipulation/grasping phase"),
+]
+
+EXPECTED_TOPICS = [
+    "/move_base_simple/goal",
+    "/move_base/result",
+    "/vlmap/semantic_goal",
+    "/vlmap/navigation_result",
+    "/hsrb/command_velocity",
+    "/hsrb/base_scan",
+    "/hsrb/head_rgbd_sensor/rgb/image_raw",
+    "/hsrb/head_rgbd_sensor/depth_registered/image_raw",
+    "/hsrb/head_rgbd_sensor/rgb/camera_info",
+    "/odom",
+    "/tf",
+    "/joint_states",
+]
+
+
+def _find_packages(checks: Iterable[PackageCheck]) -> tuple[list[PackageCheck], list[PackageCheck]]:
+    import rospkg
+
+    rospack = rospkg.RosPack()
+    present: list[PackageCheck] = []
+    missing: list[PackageCheck] = []
+    for check in checks:
+        try:
+            rospack.get_path(check.name)
+        except rospkg.ResourceNotFound:
+            missing.append(check)
+        else:
+            present.append(check)
+    return present, missing
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--allow-missing-hsr",
+        action="store_true",
+        help="Return 0 even if the external HSR packages are not installed.",
+    )
+    args = parser.parse_args()
+
+    present, missing = _find_packages(PACKAGE_CHECKS)
+    required_missing = [pkg for pkg in missing if pkg.required]
+
+    print("[hsr-check] Package availability")
+    for pkg in present:
+        print(f"  OK       {pkg.name:<24} {pkg.reason}")
+    for pkg in missing:
+        level = "MISSING" if pkg.required else "optional"
+        print(f"  {level:<8} {pkg.name:<24} {pkg.reason}")
+
+    print("\n[hsr-check] Expected runtime topics")
+    for topic in EXPECTED_TOPICS:
+        print(f"  - {topic}")
+
+    if required_missing:
+        names = ", ".join(pkg.name for pkg in required_missing)
+        print(f"\n[hsr-check] Not ready for hsr_gazebo_move_base.launch: missing {names}")
+        print("[hsr-check] Keep using gazebo_move_base.launch until the HSR packages are mounted or installed.")
+        hsr_missing = any(pkg.name.startswith("hsr") or pkg.name.startswith("tmc") for pkg in required_missing)
+        if hsr_missing and args.allow_missing_hsr:
+            return 0
+        return 1
+
+    print("\n[hsr-check] Ready: hsr_gazebo_move_base.launch can be attempted.")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
