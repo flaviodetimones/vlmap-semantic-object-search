@@ -29,7 +29,8 @@ def test_hsr_launch_is_valid_xml_and_keeps_vlmap_stack():
 
     params = {param.attrib.get("name"): param.attrib for param in root.iter("param")}
     assert params["robot_description"]["command"].startswith("$(find xacro)/xacro")
-    assert "hsrb_description" in params["robot_description"]["command"]
+    assert "hsr_description" in params["robot_description"]["command"]
+    assert "hsrb4s.urdf.xacro" in params["robot_description"]["command"]
 
 
 def test_hsr_proxy_launch_is_valid_xml_and_dependency_free():
@@ -65,9 +66,10 @@ def test_hsr_proxy_urdf_exposes_hsr_frames_topics_and_sensors():
     assert "libgazebo_ros_diff_drive.so" in xml
     assert "libgazebo_ros_laser.so" in xml
     assert "libgazebo_ros_openni_kinect.so" in xml
-    assert "rgb/image_raw" in xml
-    assert "depth_registered/image_raw" in xml
+    assert "rgb/image_rect_color" in xml
+    assert "depth_registered/image_rect_raw" in xml
     assert "rgb/camera_info" in xml
+    assert "depth_registered/rectified_points" in xml
 
 
 def test_hsr_move_base_profile_uses_hsr_frames_and_laser_topic():
@@ -86,9 +88,10 @@ def test_hsr_topic_contract_lists_navigation_and_camera_topics():
     assert topics["frames"]["base"] == "base_footprint"
     assert topics["navigation"]["cmd_vel"] == "/hsrb/command_velocity"
     assert topics["navigation"]["base_scan"] == "/hsrb/base_scan"
-    assert topics["perception"]["rgb_image"] == "/hsrb/head_rgbd_sensor/rgb/image_raw"
-    assert topics["perception"]["depth_image"] == "/hsrb/head_rgbd_sensor/depth_registered/image_raw"
+    assert topics["perception"]["rgb_image"] == "/hsrb/head_rgbd_sensor/rgb/image_rect_color"
+    assert topics["perception"]["depth_image"] == "/hsrb/head_rgbd_sensor/depth_registered/image_rect_raw"
     assert topics["perception"]["camera_info"] == "/hsrb/head_rgbd_sensor/rgb/camera_info"
+    assert topics["perception"]["point_cloud"] == "/hsrb/head_rgbd_sensor/depth_registered/rectified_points"
 
 
 def test_hsr_stack_check_declares_required_hsr_package_and_topics():
@@ -102,7 +105,8 @@ def test_hsr_stack_check_declares_required_hsr_package_and_topics():
     spec.loader.exec_module(hsr_stack_check)
 
     checks = {pkg.name: pkg for pkg in hsr_stack_check.PACKAGE_CHECKS}
-    assert checks["hsrb_description"].required is True
+    assert checks["hsr_description"].required is True
+    assert checks["hsr_meshes"].required is True
     assert checks["hsrb_gazebo_launch"].required is False
     assert "/hsrb/base_scan" in hsr_stack_check.EXPECTED_TOPICS
-    assert "/hsrb/head_rgbd_sensor/rgb/image_raw" in hsr_stack_check.EXPECTED_TOPICS
+    assert "/hsrb/head_rgbd_sensor/rgb/image_rect_color" in hsr_stack_check.EXPECTED_TOPICS

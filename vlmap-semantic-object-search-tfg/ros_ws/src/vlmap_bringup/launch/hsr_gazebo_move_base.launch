@@ -34,6 +34,7 @@
   <arg name="cmd_vel_topic" default="/hsrb/command_velocity"/>
   <arg name="move_base_params" default="$(find vlmap_bringup)/config/hsr_move_base_params.yaml"/>
   <arg name="hsr_topics_config" default="$(find vlmap_bringup)/config/hsr_topics.yaml"/>
+  <arg name="use_static_base_tf" default="true"/>
 
   <include file="$(find gazebo_ros)/launch/empty_world.launch">
     <arg name="world_name" value="$(arg world)"/>
@@ -42,13 +43,15 @@
   </include>
 
   <param name="robot_description"
-         command="$(find xacro)/xacro '$(find hsrb_description)/robots/hsrb.urdf.xacro'"/>
+         command="$(find xacro)/xacro '$(find hsr_description)/robots/hsrb4s.urdf.xacro'"/>
   <node pkg="gazebo_ros" type="spawn_model" name="spawn_hsrb" output="screen"
         args="-urdf -param robot_description -model $(arg robot_model_name) -x $(arg robot_x) -y $(arg robot_y) -z $(arg robot_z) -Y $(arg robot_yaw)"/>
   <node pkg="robot_state_publisher" type="robot_state_publisher" name="robot_state_publisher"/>
   <node if="$(arg use_joint_state_publisher)" pkg="joint_state_publisher" type="joint_state_publisher" name="joint_state_publisher"/>
   <node pkg="tf" type="static_transform_publisher" name="map_to_odom"
         args="0 0 0 0 0 0 map odom 100"/>
+  <node if="$(arg use_static_base_tf)" pkg="tf" type="static_transform_publisher" name="odom_to_static_hsrb_base"
+        args="0 0 0 0 0 0 odom $(arg base_frame) 100"/>
 
   <rosparam command="load" ns="/vlmap/hsr" file="$(arg hsr_topics_config)"/>
 

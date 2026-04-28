@@ -236,10 +236,11 @@
         <alwaysOn>true</alwaysOn>
         <updateRate>15.0</updateRate>
         <cameraName>/hsrb/head_rgbd_sensor</cameraName>
-        <imageTopicName>rgb/image_raw</imageTopicName>
-        <depthImageTopicName>depth_registered/image_raw</depthImageTopicName>
+        <imageTopicName>rgb/image_rect_color</imageTopicName>
+        <depthImageTopicName>depth_registered/image_rect_raw</depthImageTopicName>
         <cameraInfoTopicName>rgb/camera_info</cameraInfoTopicName>
-        <pointCloudTopicName>depth_registered/points</pointCloudTopicName>
+        <depthImageCameraInfoTopicName>depth_registered/camera_info</depthImageCameraInfoTopicName>
+        <pointCloudTopicName>depth_registered/rectified_points</pointCloudTopicName>
         <frameName>head_rgbd_sensor_rgb_frame</frameName>
       </plugin>
     </sensor>

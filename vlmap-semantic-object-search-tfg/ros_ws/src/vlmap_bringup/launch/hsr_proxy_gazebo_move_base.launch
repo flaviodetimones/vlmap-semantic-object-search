@@ -6,8 +6,8 @@
   It launches a local proxy robot with HSR-compatible core topics:
     /hsrb/command_velocity
     /hsrb/base_scan
-    /hsrb/head_rgbd_sensor/rgb/image_raw
-    /hsrb/head_rgbd_sensor/depth_registered/image_raw
+    /hsrb/head_rgbd_sensor/rgb/image_rect_color
+    /hsrb/head_rgbd_sensor/depth_registered/image_rect_raw
     /hsrb/head_rgbd_sensor/rgb/camera_info
 -->
 <launch>
