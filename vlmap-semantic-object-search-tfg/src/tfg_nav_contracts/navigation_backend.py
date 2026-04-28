@@ -108,6 +108,7 @@ class RosNavigationBackend(NavigationBackend):
         result_topic_type: str = "move_base_msgs/MoveBaseActionResult",
         goal_frame: str = "map",
         poll_interval_s: float = 0.05,
+        publish_settle_s: float = 0.1,
         auto_connect: bool = True,
         client: Any = None,
         topic_factory: Optional[Callable[[Any, str, str], Any]] = None,
@@ -128,6 +129,7 @@ class RosNavigationBackend(NavigationBackend):
         self.result_topic_type = result_topic_type
         self.goal_frame = goal_frame
         self.poll_interval_s = float(poll_interval_s)
+        self.publish_settle_s = float(publish_settle_s)
         self._clock = clock or time.monotonic
         self._sleep = sleep_fn or time.sleep
         self._uuid_factory = uuid_factory or (lambda: uuid.uuid4().hex)
@@ -218,6 +220,10 @@ class RosNavigationBackend(NavigationBackend):
         self._pending_order.append(token)
         self._publish(self._semantic_pub, self._semantic_goal_payload(goal, token))
         self._publish(self._nav_pub, self._nav_goal_payload(goal))
+        # roslibpy writes over a websocket; a tiny settle interval makes short-lived
+        # helper scripts much less likely to exit before the frames are flushed.
+        if self.publish_settle_s > 0.0:
+            self._sleep(self.publish_settle_s)
         return token
 
     def _pop_oldest_pending_token(self) -> Optional[str]:
