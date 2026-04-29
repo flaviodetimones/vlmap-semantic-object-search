@@ -10,6 +10,8 @@ catkin_package(
 )
 
 catkin_install_python(PROGRAMS
+  scripts/hsr_keyboard_teleop.py
+  scripts/hsr_posture_keeper.py
   scripts/hsr_stack_check
   scripts/mock_move_base_node
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}

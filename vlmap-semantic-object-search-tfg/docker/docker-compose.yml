@@ -14,12 +14,14 @@ services:
       - ../results:/workspace/results
       - ../../vlmaps/vlmaps/lseg/checkpoints:/workspace/third_party/vlmaps/vlmaps/lseg/checkpoints
       - /tmp/.X11-unix:/tmp/.X11-unix
+      - ${HOME}/.Xauthority:/root/.Xauthority:ro
     ports:
       - "8888:8888"
     environment:
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - OPENAI_KEY=${OPENAI_API_KEY}
       - DISPLAY=${DISPLAY}
+      - XAUTHORITY=/root/.Xauthority
     stdin_open: true
     tty: true
     shm_size: "16gb"
@@ -48,8 +50,10 @@ services:
       - ../ros_ws:/ros_ws
       - ..:/workspace
       - /tmp/.X11-unix:/tmp/.X11-unix
+      - ${HOME}/.Xauthority:/root/.Xauthority:ro
     environment:
       - DISPLAY=${DISPLAY}
+      - XAUTHORITY=/root/.Xauthority
       - ROS_MASTER_URI=http://tfg-ros:11311
       - ROS_HOSTNAME=tfg-ros
       - ROS_MODE=${ROS_MODE:-shell}

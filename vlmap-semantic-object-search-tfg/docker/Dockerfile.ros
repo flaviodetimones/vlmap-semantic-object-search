@@ -10,6 +10,7 @@ FROM osrf/ros:noetic-desktop-full-focal
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV TZ=Europe/Madrid
+ENV BASH_ENV=/etc/profile.d/ros_setup.sh
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     bash-completion \
@@ -47,6 +48,19 @@ RUN rosdep update --rosdistro noetic || true
 
 # Workspace mount point (see docker-compose volume `../ros_ws:/ros_ws`).
 WORKDIR /ros_ws
+
+# Make ROS available in interactive shells, login shells and non-interactive
+# `bash -c` / `bash -lc` execs without requiring a manual `source`.
+RUN printf '%s\n' \
+    '#!/usr/bin/env bash' \
+    'source /opt/ros/noetic/setup.bash' \
+    'if [ -f /ros_ws/devel/setup.bash ]; then' \
+    '  source /ros_ws/devel/setup.bash' \
+    'fi' \
+    > /etc/profile.d/ros_setup.sh \
+    && chmod +x /etc/profile.d/ros_setup.sh \
+    && printf '%s\n' 'source /etc/profile.d/ros_setup.sh' >> /root/.bashrc \
+    && printf '%s\n' 'if [ -f ~/.bashrc ]; then . ~/.bashrc; fi' > /root/.bash_profile
 
 # Copy entrypoint that sources ROS + workspace overlays.
 COPY entrypoint_ros.sh /entrypoint_ros.sh
