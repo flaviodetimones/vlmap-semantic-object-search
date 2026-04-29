@@ -1,11 +1,28 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-COMPOSE_FILE="$ROOT_DIR/docker/docker-compose.yml"
+LOG_DIR=/tmp/tfg_ros_menu_logs
+mkdir -p "$LOG_DIR"
 
-ensure_ros_container() {
-  docker compose -f "$COMPOSE_FILE" up -d tfg-ros >/dev/null
+ros_env() {
+  source /opt/ros/noetic/setup.bash
+  if [[ -f /ros_ws/devel/setup.bash ]]; then
+    # shellcheck disable=SC1091
+    source /ros_ws/devel/setup.bash
+  fi
+}
+
+show_host_start_hint() {
+  echo ""
+  echo "  Host-side start:"
+  echo "    cd /home/mario/tfg/vlmap-semantic-object-search-tfg/docker"
+  echo "    docker compose up -d tfg-ros"
+  echo "    docker exec -it tfg-ros menu"
+}
+
+run_in_ros_shell() {
+  local cmd="$1"
+  bash -lc "source /opt/ros/noetic/setup.bash; if [[ -f /ros_ws/devel/setup.bash ]]; then source /ros_ws/devel/setup.bash; fi; ${cmd}"
 }
 
 ask_yes_no() {
@@ -18,14 +35,64 @@ ask_yes_no() {
   [[ "$ans" =~ ^[Yy]$ ]]
 }
 
+pick_rviz_arg() {
+  if ask_yes_no "Open RViz too?" "n"; then
+    echo "use_rviz:=true"
+  else
+    echo "use_rviz:=false"
+  fi
+}
+
+pick_rosbridge_arg() {
+  if ask_yes_no "Enable rosbridge?" "n"; then
+    echo "use_rosbridge:=true"
+  else
+    echo "use_rosbridge:=false"
+  fi
+}
+
 launch_detached() {
   local name="$1"
   local command="$2"
+  local log_path="${LOG_DIR}/${name}.log"
+  local pid_path="${LOG_DIR}/${name}.pid"
   echo ""
   echo "► Launching $name in background..."
-  docker exec tfg-ros bash -lc "pkill -f 'roslaunch vlmap_bringup' >/dev/null 2>&1 || true"
-  docker exec tfg-ros bash -lc "nohup $command >/tmp/${name}.log 2>&1 &"
-  echo "  Log: docker exec -it tfg-ros bash -lc 'tail -f /tmp/${name}.log'"
+  pkill -f "roslaunch vlmap_bringup" >/dev/null 2>&1 || true
+  pkill -f gzserver >/dev/null 2>&1 || true
+  pkill -f gzclient >/dev/null 2>&1 || true
+  nohup bash -lc "source /opt/ros/noetic/setup.bash; if [[ -f /ros_ws/devel/setup.bash ]]; then source /ros_ws/devel/setup.bash; fi; ${command}" >"$log_path" 2>&1 &
+  echo $! >"$pid_path"
+  sleep 1
+  echo "  PID: $(cat "$pid_path")"
+  echo "  Log: tail -f $log_path"
+}
+
+tail_latest_log() {
+  local latest
+  latest="$(ls -1t "$LOG_DIR"/hsr_*.log 2>/dev/null | head -1 || true)"
+  if [[ -z "$latest" ]]; then
+    echo "  No ROS launch logs found yet."
+    return 0
+  fi
+  tail -f "$latest"
+}
+
+stop_active_stack() {
+  echo ""
+  echo "► Stopping active ROS/Gazebo processes..."
+  pkill -f "roslaunch vlmap_bringup" >/dev/null 2>&1 || true
+  pkill -f "rosrun rviz rviz" >/dev/null 2>&1 || true
+  pkill -f gzserver >/dev/null 2>&1 || true
+  pkill -f gzclient >/dev/null 2>&1 || true
+  pkill -f "hsr_keyboard_teleop.py" >/dev/null 2>&1 || true
+  rm -f "$LOG_DIR"/*.pid
+}
+
+show_status() {
+  echo ""
+  echo "► Process status:"
+  pgrep -af "roslaunch vlmap_bringup|gzserver|gzclient|rviz|hsr_keyboard_teleop.py" || echo "  No active ROS/Gazebo processes."
 }
 
 run_ros_menu() {
@@ -34,7 +101,7 @@ run_ros_menu() {
     echo "  ┌─────────────────────────────────────────────────────┐"
     echo "  │                 ROS / Gazebo menu                  │"
     echo "  ├─────────────────────────────────────────────────────┤"
-    echo "  │  1) Start / refresh tfg-ros container              │"
+    echo "  │  1) Show host-side start commands                  │"
     echo "  │  2) Build catkin workspace                         │"
     echo "  │  3) Launch HSR official - Gazebo only              │"
     echo "  │  4) Launch HSR official - full stack               │"
@@ -43,6 +110,7 @@ run_ros_menu() {
     echo "  │  7) Tail active ROS log                            │"
     echo "  │  8) Stop active ROS/Gazebo processes               │"
     echo "  │  9) Show key HSR topics                            │"
+    echo "  │  s) Show running ROS/Gazebo processes              │"
     echo "  │  q) Quit                                           │"
     echo "  └─────────────────────────────────────────────────────┘"
     echo -n "  Select: "
@@ -50,77 +118,53 @@ run_ros_menu() {
 
     case "$opt" in
       1)
-        echo ""
-        echo "► Starting tfg-ros..."
-        docker compose -f "$COMPOSE_FILE" up -d tfg-ros
+        show_host_start_hint
         ;;
       2)
-        ensure_ros_container
         echo ""
         echo "► Building /ros_ws ..."
-        docker exec -it tfg-ros bash -lc "cd /ros_ws && catkin build"
+        run_in_ros_shell "cd /ros_ws && catkin build"
         ;;
       3)
-        ensure_ros_container
-        rviz_arg="use_rviz:=false"
-        if ask_yes_no "Open RViz too?" "n"; then
-          rviz_arg="use_rviz:=true"
-        fi
+        rviz_arg="$(pick_rviz_arg)"
         launch_detached \
           "hsr_gazebo_only" \
           "roslaunch vlmap_bringup hsr_gazebo_only.launch gui:=true ${rviz_arg}"
         ;;
       4)
-        ensure_ros_container
-        rviz_arg="use_rviz:=false"
-        rosbridge_arg="use_rosbridge:=false"
-        if ask_yes_no "Open RViz too?" "n"; then
-          rviz_arg="use_rviz:=true"
-        fi
-        if ask_yes_no "Enable rosbridge?" "n"; then
-          rosbridge_arg="use_rosbridge:=true"
-        fi
+        rviz_arg="$(pick_rviz_arg)"
+        rosbridge_arg="$(pick_rosbridge_arg)"
         launch_detached \
           "hsr_full_stack" \
           "roslaunch vlmap_bringup hsr_gazebo_move_base.launch gui:=true ${rviz_arg} ${rosbridge_arg}"
         ;;
       5)
-        ensure_ros_container
-        rviz_arg="use_rviz:=false"
-        rosbridge_arg="use_rosbridge:=false"
-        if ask_yes_no "Open RViz too?" "n"; then
-          rviz_arg="use_rviz:=true"
-        fi
-        if ask_yes_no "Enable rosbridge?" "n"; then
-          rosbridge_arg="use_rosbridge:=true"
-        fi
+        rviz_arg="$(pick_rviz_arg)"
+        rosbridge_arg="$(pick_rosbridge_arg)"
         launch_detached \
           "hsr_proxy_full_stack" \
           "roslaunch vlmap_bringup hsr_proxy_gazebo_move_base.launch gui:=true ${rviz_arg} ${rosbridge_arg}"
         ;;
       6)
-        ensure_ros_container
         echo ""
         echo "► Starting keyboard teleop. Keys: w/s/a/d, x=stop, q=quit"
-        docker exec -it tfg-ros bash -lc "rosrun vlmap_bringup hsr_keyboard_teleop.py"
+        run_in_ros_shell "rosrun vlmap_bringup hsr_keyboard_teleop.py"
         ;;
       7)
-        ensure_ros_container
         echo ""
         echo "► Tailing most recent ROS launch log..."
-        docker exec -it tfg-ros bash -lc "ls -1t /tmp/hsr_*.log 2>/dev/null | head -1 | xargs -r tail -f"
+        tail_latest_log
         ;;
       8)
-        ensure_ros_container
-        echo ""
-        echo "► Stopping active ROS/Gazebo processes..."
-        docker exec tfg-ros bash -lc "pkill -f 'roslaunch vlmap_bringup' >/dev/null 2>&1 || true; pkill -f gzserver >/dev/null 2>&1 || true; pkill -f gzclient >/dev/null 2>&1 || true"
+        stop_active_stack
         ;;
       9)
-        ensure_ros_container
         echo ""
         echo "► Key HSR topics:"
-        docker exec -it tfg-ros bash -lc "rostopic list | egrep 'hsrb|move_base|vlmap|scan|image_rect|camera_info|rectified_points' || true"
+        run_in_ros_shell "rostopic list | egrep 'hsrb|move_base|vlmap|scan|image_rect|camera_info|rectified_points' || true"
+        ;;
+      s|S)
+        show_status
         ;;
       q|Q)
         break

@@ -150,6 +150,9 @@ run_testing_menu() {
         echo "  │  2) Compare full 2x2 pipeline                   │"
         echo "  │  3) Heatmap-only offline analysis               │"
         echo "  │  4) YOLOE conf-thresh sweep                     │"
+        echo "  │  5) Place benchmark small objects               │"
+        echo "  │  6) Build benchmark small-object queries        │"
+        echo "  │  7) Run benchmark small-object eval             │"
         echo "  │  b) Back                                        │"
         echo "  └─────────────────────────────────────────────────┘"
         echo -n "  Select: "
@@ -373,6 +376,157 @@ run_testing_menu() {
                     echo "  Results root:  $OUT_DIR"
                 fi
                 ;;
+            5)
+                echo ""
+                if [ "$DATASET_TYPE" != "hssd" ]; then
+                    echo "  Benchmark small-object placement is currently HSSD-only."
+                    echo "  Switch to HSSD from the dataset menu."
+                else
+                    echo "  Available scenes [$DS_LABEL]:"
+                    echo "  ─────────────────────────────────────────────────"
+                    print_scene_list
+                    echo ""
+                    echo -n "  Scene ids comma-separated (default 0,1,2): "
+                    read -r ov_place_scene_ids
+                    ov_place_scene_ids=${ov_place_scene_ids:-0,1,2}
+                    echo ""
+                    echo "► Placing benchmark small objects into HSSD scenes..."
+                    echo "  Query JSONL output: /workspace/tools/eval_queries/small_objects_placed/{scene_name}.jsonl"
+                    cd /workspace
+                    IFS=',' read -r -a _ov_place_ids <<< "$ov_place_scene_ids"
+                    for _sid in "${_ov_place_ids[@]}"; do
+                        _sid=$(echo "$_sid" | xargs)
+                        [ -z "$_sid" ] && continue
+                        _scene_name=$(scene_name_from_id "$_sid")
+                        if [ -z "$_scene_name" ]; then
+                            echo "  [skip] could not resolve scene_name for scene_id=$_sid"
+                            continue
+                        fi
+                        _base_scene=$(echo "$_scene_name" | sed -E 's/_[0-9]+$//')
+                        _scene_path="/workspace/data/versioned_data/hssd-hab/scenes/${_base_scene}.scene_instance.json"
+                        _spec_path="/workspace/tools/eval_queries/specs/small_objects_${_base_scene}.json"
+                        _semantic_path="/workspace/data/versioned_data/hssd-hab/semantics/scenes/${_base_scene}.semantic_config.json"
+                        _out_jsonl="/workspace/tools/eval_queries/small_objects_placed/${_scene_name}.jsonl"
+                        if [ ! -f "$_spec_path" ]; then
+                            echo "  [skip] missing spec: $_spec_path"
+                            continue
+                        fi
+                        python /workspace/tools/place_small_objects.py \
+                            --scene "$_scene_path" \
+                            --spec "$_spec_path" \
+                            --out-jsonl "$_out_jsonl" \
+                            --metadata-csv /workspace/data/versioned_data/hssd-hab/metadata/object_categories_filtered.csv \
+                            --furniture-csv /workspace/data/versioned_data/hssd-hab/metadata/fpmodels-with-decomposed.csv \
+                            --semantic-config "$_semantic_path"
+                    done
+                fi
+                ;;
+            6)
+                echo ""
+                if [ "$DATASET_TYPE" != "hssd" ]; then
+                    echo "  Benchmark small-object query generation is currently HSSD-only."
+                    echo "  Switch to HSSD from the dataset menu."
+                else
+                    echo "  Available scenes [$DS_LABEL]:"
+                    echo "  ─────────────────────────────────────────────────"
+                    print_scene_list
+                    echo ""
+                    echo -n "  Scene names CSV (blank = all current eval_queries scenes): "
+                    read -r ov_scene_names
+                    echo -n "  Targets CSV (blank = bottle,laptop,mug,kettle,toaster,coffee maker,trash bin,teapot): "
+                    read -r ov_targets
+                    ov_targets=${ov_targets:-bottle,laptop,mug,kettle,toaster,coffee maker,trash bin,teapot}
+                    echo -n "  Include room_object variants? [y/N]: "
+                    read -r ov_room_object
+                    echo ""
+                    echo "► Building benchmark small-object query battery..."
+                    echo "  Output: /workspace/tools/eval_queries/small_objects/{scene_name}.jsonl"
+                    cd /workspace
+                    if [[ "$ov_room_object" =~ ^[Yy]$ ]]; then
+                        if [ -n "$ov_scene_names" ]; then
+                            python tools/build_open_vocab_eval_queries.py \
+                                --source-dir /workspace/tools/eval_queries \
+                                --out-dir /workspace/tools/eval_queries/small_objects \
+                                --dataset-root /workspace/data/versioned_data/hssd-hab \
+                                --scene-names "$ov_scene_names" \
+                                --targets "$ov_targets" \
+                                --include-room-object
+                        else
+                            python tools/build_open_vocab_eval_queries.py \
+                                --source-dir /workspace/tools/eval_queries \
+                                --out-dir /workspace/tools/eval_queries/small_objects \
+                                --dataset-root /workspace/data/versioned_data/hssd-hab \
+                                --targets "$ov_targets" \
+                                --include-room-object
+                        fi
+                    else
+                        if [ -n "$ov_scene_names" ]; then
+                            python tools/build_open_vocab_eval_queries.py \
+                                --source-dir /workspace/tools/eval_queries \
+                                --out-dir /workspace/tools/eval_queries/small_objects \
+                                --dataset-root /workspace/data/versioned_data/hssd-hab \
+                                --scene-names "$ov_scene_names" \
+                                --targets "$ov_targets"
+                        else
+                            python tools/build_open_vocab_eval_queries.py \
+                                --source-dir /workspace/tools/eval_queries \
+                                --out-dir /workspace/tools/eval_queries/small_objects \
+                                --dataset-root /workspace/data/versioned_data/hssd-hab \
+                                --targets "$ov_targets"
+                        fi
+                    fi
+                fi
+                ;;
+            7)
+                echo ""
+                if [ "$DATASET_TYPE" != "hssd" ]; then
+                    echo "  Benchmark small-object evaluation is currently HSSD-only."
+                    echo "  Switch to HSSD from the dataset menu."
+                else
+                    if [ -z "$OPENAI_API_KEY" ]; then
+                        echo "  NOTE: OPENAI_API_KEY is not set."
+                        echo "  The run will still work, but open-vocab resolution may fall back more often."
+                    fi
+                    echo "  Available scenes [$DS_LABEL]:"
+                    echo "  ─────────────────────────────────────────────────"
+                    print_scene_list
+                    echo ""
+                    echo -n "  Scene ids comma-separated (default 0,1,2): "
+                    read -r ov_scene_ids
+                    ov_scene_ids=${ov_scene_ids:-0,1,2}
+                    echo -n "  Queries dir or JSONL (blank = /workspace/tools/eval_queries/small_objects): "
+                    read -r ov_queries
+                    ov_queries=${ov_queries:-/workspace/tools/eval_queries/small_objects}
+                    echo -n "  Policy mode [heuristic|hybrid|llm] (default hybrid): "
+                    read -r ov_policy
+                    ov_policy=${ov_policy:-hybrid}
+                    echo -n "  YOLOE conf threshold (default 0.30): "
+                    read -r ov_yoloe_conf
+                    ov_yoloe_conf=${ov_yoloe_conf:-0.30}
+                    echo -n "  Methods CSV (default Ob_Hp): "
+                    read -r ov_methods
+                    ov_methods=${ov_methods:-Ob_Hp}
+                    STAMP=$(date +%Y%m%d_%H%M%S)
+                    OUT_DIR="/workspace/results/small_objects_eval/${STAMP}"
+                    echo ""
+                    echo "► Running benchmark small-object evaluation..."
+                    echo "  Output root: $OUT_DIR"
+                    cd /workspace
+                    python tools/run_open_vocab_eval.py \
+                        --scene-ids "$ov_scene_ids" \
+                        --queries "$ov_queries" \
+                        --dataset-type "$DATASET_TYPE" \
+                        --data-paths "$DATA_PATHS" \
+                        --scene-dataset-config-file "$HSSD_CFG" \
+                        --policy-mode "$ov_policy" \
+                        --yoloe-conf-thresh "$ov_yoloe_conf" \
+                        --methods "$ov_methods" \
+                        --out "$OUT_DIR"
+                    echo ""
+                    echo "  Results root:  $OUT_DIR"
+                    echo "  Summary:       $OUT_DIR/open_vocab_analysis/open_vocab_by_method.md"
+                fi
+                ;;
             b|B)
                 break
                 ;;
@@ -500,11 +654,17 @@ while true; do
                         echo "    #   2) Compare full 2x2 pipeline"
                         echo "    #   3) Heatmap-only offline analysis"
                         echo "    #   4) YOLOE conf-thresh sweep"
+                        echo "    #   5) Place benchmark small objects"
+                        echo "    #   6) Build benchmark small-object queries"
+                        echo "    #   7) Run benchmark small-object eval"
                         echo ""
                         echo "    # Direct runners from inside the container:"
                         echo "    python /workspace/tools/run_full_eval.py --scene-ids 0 --yoloe-conf-thresh 0.30 --out /workspace/results/eval_runs/demo"
                         echo "    python /workspace/tools/run_yoloe_thresh_sweep.py --scene-id 0 --queries /workspace/tools/eval_queries/SCENE.jsonl --thresholds 0.30,0.35,0.40 --out /workspace/results/yoloe_sweep/demo"
                         echo "    python /workspace/tools/run_heatmap_offline_eval.py --scene-ids 0 --out /workspace/results/eval_runs/demo"
+                        echo "    python /workspace/tools/place_small_objects.py --scene /workspace/data/versioned_data/hssd-hab/scenes/SCENE.scene_instance.json --spec /workspace/tools/eval_queries/specs/small_objects_SCENE.json --out-jsonl /workspace/tools/eval_queries/small_objects_placed/SCENE.jsonl"
+                        echo "    python /workspace/tools/build_open_vocab_eval_queries.py --targets 'bottle,laptop,mug,kettle,toaster,coffee maker,trash bin,teapot' --include-room-object"
+                        echo "    python /workspace/tools/run_open_vocab_eval.py --scene-ids 0,1,2 --queries /workspace/tools/eval_queries/small_objects --out /workspace/results/small_objects_eval/demo"
                         else
                         echo "  All scripts use Hydra. Run them from inside the container."
                         echo "  data_paths=docker uses /workspace/data paths."
@@ -573,12 +733,31 @@ while true; do
                                 read -r hssd_scene
                                 hssd_scene=${hssd_scene:-102344280}
                                 echo ""
-                                echo "► python dataset/collect_hssd_dataset.py --scene_id $hssd_scene"
+                                # Fixed spawn points per scene (X Z).
+                                # Avoids bad random spawns (e.g. on top of furniture).
+                                # Add new scenes here as needed.
+                                declare -A _SPAWN_POINTS=(
+                                    ["102344193"]="0.0 -5.0"
+                                    ["102344280"]="-3.0 -8.0"
+                                    ["108736884_177263634"]="2.0 -6.0"
+                                    ["107734479_176000442"]="3.49 -10.77"
+                                )
+                                _spawn_args=""
+                                if [[ -n "${_SPAWN_POINTS[$hssd_scene]+_}" ]]; then
+                                    read -r _sx _sz <<< "${_SPAWN_POINTS[$hssd_scene]}"
+                                    _spawn_args="--start-pos $_sx $_sz"
+                                    echo "  Spawn : fixed ($_sx, $_sz)  [hallway/entryway preset]"
+                                else
+                                    echo "  Spawn : random (no preset for '$hssd_scene')"
+                                fi
+                                echo "► python dataset/collect_hssd_dataset.py --scene_id $hssd_scene $_spawn_args"
                                 echo ""
                                 cd /workspace/third_party/vlmaps
+                                # shellcheck disable=SC2086
                                 python "$DATASET/collect_hssd_dataset.py" \
                                     --scene_dataset_config "$HSSD_CFG" \
-                                    --scene_id "$hssd_scene"
+                                    --scene_id "$hssd_scene" \
+                                    $_spawn_args
                             fi
                         else
                             HABITAT_DIR=/workspace/data/mp3d

@@ -18,6 +18,20 @@ if [[ -f /ros_ws/devel/setup.bash ]]; then
     source /ros_ws/devel/setup.bash
 fi
 
+chmod +x /workspace/docker/ros_menu.sh
+ln -sf /workspace/docker/ros_menu.sh /usr/local/bin/menu
+
+echo ""
+echo "╔══════════════════════════════════════════════════════════════════╗"
+echo "║                TFG — ROS1 Noetic + Gazebo                      ║"
+echo "╠══════════════════════════════════════════════════════════════════╣"
+echo "║  ROS     : $(rosversion -d 2>/dev/null || echo 'unknown')"
+echo "║  Workdir : $(pwd)"
+echo "╠══════════════════════════════════════════════════════════════════╣"
+echo "║  Type  'menu'  to see ROS / Gazebo commands                     ║"
+echo "╚══════════════════════════════════════════════════════════════════╝"
+echo ""
+
 mode="${ROS_MODE:-shell}"
 case "${mode}" in
     core)
