@@ -10,12 +10,23 @@ from std_msgs.msg import Float64
 
 
 _PROFILES: Dict[str, Dict[str, float]] = {
+    # Camera-first pose: tuck the arm away so the RGB-D view is actually usable.
+    "sensor": {
+        "base_roll_joint": 0.0,
+        "arm_lift_joint": 0.0,
+        "arm_flex_joint": 0.0,
+        "arm_roll_joint": -1.57,
+        "wrist_flex_joint": -1.57,
+        "wrist_roll_joint": 0.0,
+        "head_pan_joint": 0.0,
+        "head_tilt_joint": 0.18,
+    },
     # Compact, visually stable pose for navigation and sensor validation.
     "nav": {
         "base_roll_joint": 0.0,
         "arm_lift_joint": 0.0,
         "arm_flex_joint": 0.0,
-        "arm_roll_joint": 0.0,
+        "arm_roll_joint": -1.57,
         "wrist_flex_joint": -1.57,
         "wrist_roll_joint": 0.0,
         "head_pan_joint": 0.0,
@@ -26,7 +37,7 @@ _PROFILES: Dict[str, Dict[str, float]] = {
         "base_roll_joint": 0.0,
         "arm_lift_joint": 0.12,
         "arm_flex_joint": -0.55,
-        "arm_roll_joint": 0.0,
+        "arm_roll_joint": -1.2,
         "wrist_flex_joint": -1.10,
         "wrist_roll_joint": 0.0,
         "head_pan_joint": 0.0,

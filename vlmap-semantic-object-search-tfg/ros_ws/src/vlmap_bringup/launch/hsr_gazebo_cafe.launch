@@ -1,21 +1,20 @@
 <?xml version="1.0"?>
 <!--
-  Official HSR in a simple Gazebo world with a safe spawn pose for manual tests.
+  Official HSR in cafe.world with a safe spawn pose.
 
-  shapes.world places a box at (0, 0), so spawning the robot at the origin
-  makes the base collide immediately and look "erratic". This wrapper keeps the
-  official HSR stack but moves the spawn to a known free area for teleop and
-  RViz sensor inspection.
+  Spawning at (0, 0) in cafe.world is unreliable for the HSR because the robot
+  can start in collision-prone or actor-intersecting zones. This wrapper moves
+  the robot to a verified free area.
 -->
 <launch>
-  <arg name="world" default="/usr/share/gazebo-11/worlds/shapes.world"/>
+  <arg name="world" default="/usr/share/gazebo-11/worlds/cafe.world"/>
   <arg name="paused" default="false"/>
   <arg name="gui" default="true"/>
   <arg name="use_rviz" default="true"/>
   <arg name="rviz_config" default="$(find vlmap_bringup)/rviz/hsr_sensors.rviz"/>
   <arg name="posture_profile" default="sensor"/>
-  <arg name="robot_x" default="2.5"/>
-  <arg name="robot_y" default="0.0"/>
+  <arg name="robot_x" default="6.0"/>
+  <arg name="robot_y" default="6.0"/>
   <arg name="robot_z" default="0.05"/>
   <arg name="robot_yaw" default="0.0"/>
 

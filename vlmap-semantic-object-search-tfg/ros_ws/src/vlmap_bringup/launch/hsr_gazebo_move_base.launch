@@ -17,7 +17,7 @@
   <arg name="gui" default="false"/>
   <arg name="use_rosbridge" default="true"/>
   <arg name="use_rviz" default="false"/>
-  <arg name="rviz_config" default="$(find vlmap_bringup)/rviz/hsr_sensors.rviz"/>
+  <arg name="rviz_config" default="$(find vlmap_bringup)/rviz/hsr_navigation.rviz"/>
   <arg name="use_joint_state_publisher" default="false"/>
   <arg name="use_posture_keeper" default="true"/>
   <arg name="posture_profile" default="display"/>

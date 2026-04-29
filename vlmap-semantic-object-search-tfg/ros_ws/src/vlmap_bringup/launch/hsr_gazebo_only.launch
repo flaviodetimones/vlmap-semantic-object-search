@@ -14,7 +14,7 @@
   <arg name="use_joint_state_publisher" default="false"/>
   <arg name="use_static_base_tf" default="false"/>
   <arg name="use_posture_keeper" default="true"/>
-  <arg name="posture_profile" default="display"/>
+  <arg name="posture_profile" default="sensor"/>
   <arg name="ros_control_config" default="$(find vlmap_bringup)/config/hsr_ros_control.yaml"/>
 
   <arg name="robot_model_name" default="hsrb"/>
