@@ -82,7 +82,7 @@ Visualization Manager:
   Global Options:
     Background Color: 48; 48; 48
     Default Light: true
-    Fixed Frame: map
+    Fixed Frame: odom
     Frame Rate: 30
   Name: root
   Tools:
@@ -102,7 +102,7 @@ Visualization Manager:
       Name: Current View
       Near Clip Distance: 0.01
       Pitch: 0.6
-      Target Frame: map
+      Target Frame: odom
       Value: Orbit (rviz)
       Yaw: 0.75
     Saved: ~

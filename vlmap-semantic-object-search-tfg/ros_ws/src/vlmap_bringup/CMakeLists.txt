@@ -10,10 +10,8 @@ catkin_package(
 )
 
 catkin_install_python(PROGRAMS
-  scripts/hsr_base_drive_controller.py
-  scripts/hsr_cmd_vel_bridge.py
-  scripts/hsr_ground_truth_odom_bridge.py
   scripts/hsr_keyboard_teleop.py
+  scripts/hsr_passive_joint_state_publisher.py
   scripts/hsr_posture_keeper.py
   scripts/hsr_stack_check
   scripts/mock_move_base_node

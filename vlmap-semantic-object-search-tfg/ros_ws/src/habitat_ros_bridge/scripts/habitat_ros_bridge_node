@@ -87,7 +87,7 @@ def main() -> None:
     publish_tf = bool(rospy.get_param("~publish_tf", True))
 
     map_pub = rospy.Publisher("/map", OccupancyGrid, queue_size=1, latch=True)
-    odom_pub = rospy.Publisher("/odom", Odometry, queue_size=1)
+    odom_pub = rospy.Publisher("/odom", Odometry, queue_size=1) if publish_odom else None
     pub = rospy.Publisher("/vlmap/heartbeat", String, queue_size=10)
     tf_pub = tf2_ros.TransformBroadcaster()
 
@@ -138,7 +138,8 @@ def main() -> None:
         if publish_odom:
             odom_msg = _build_odom_msg(pose, odom_frame, base_frame)
             odom_msg.header.stamp = now
-            odom_pub.publish(odom_msg)
+            if odom_pub is not None:
+                odom_pub.publish(odom_msg)
 
         if publish_tf:
             t_map_odom = TransformStamped()
