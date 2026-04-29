@@ -49,6 +49,8 @@
         args="/$(arg robot_model_name)/joint_states /joint_states"/>
   <node pkg="vlmap_bringup" type="hsr_passive_joint_state_publisher.py"
         name="hsr_passive_joint_state_publisher" output="screen"/>
+  <node pkg="vlmap_bringup" type="hsr_sensor_visualizer.py"
+        name="hsr_sensor_visualizer" output="screen"/>
   <node pkg="topic_tools" type="relay" name="hsr_wheel_odom_relay"
         args="/$(arg robot_model_name)/wheel_odom /odom"/>
   <node pkg="tf" type="static_transform_publisher" name="map_to_odom"

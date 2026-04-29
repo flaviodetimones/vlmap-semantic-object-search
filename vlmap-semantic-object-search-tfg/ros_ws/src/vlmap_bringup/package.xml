@@ -34,4 +34,5 @@
   <exec_depend>forward_command_controller</exec_depend>
   <exec_depend>std_msgs</exec_depend>
   <exec_depend>topic_tools</exec_depend>
+  <exec_depend>visualization_msgs</exec_depend>
 </package>
