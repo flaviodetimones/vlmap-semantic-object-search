@@ -13,9 +13,11 @@
   <exec_depend>gazebo_ros</exec_depend>
   <exec_depend>gazebo_msgs</exec_depend>
   <exec_depend>geometry_msgs</exec_depend>
+  <exec_depend>nav_msgs</exec_depend>
   <exec_depend>move_base_msgs</exec_depend>
   <exec_depend>robot_state_publisher</exec_depend>
   <exec_depend>rviz</exec_depend>
+  <exec_depend>sensor_msgs</exec_depend>
   <exec_depend>rosbridge_server</exec_depend>
   <exec_depend>tf</exec_depend>
   <exec_depend>xacro</exec_depend>
@@ -25,4 +27,11 @@
   <exec_depend>yoloe_verifier</exec_depend>
   <exec_depend>move_base</exec_depend>
   <exec_depend>map_server</exec_depend>
+  <exec_depend>controller_manager</exec_depend>
+  <exec_depend>diff_drive_controller</exec_depend>
+  <exec_depend>joint_state_controller</exec_depend>
+  <exec_depend>position_controllers</exec_depend>
+  <exec_depend>forward_command_controller</exec_depend>
+  <exec_depend>std_msgs</exec_depend>
+  <exec_depend>topic_tools</exec_depend>
 </package>

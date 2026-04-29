@@ -12,9 +12,11 @@
   <arg name="use_rviz" default="false"/>
   <arg name="rviz_config" default="$(find vlmap_bringup)/rviz/hsr_sensors.rviz"/>
   <arg name="use_joint_state_publisher" default="false"/>
-  <arg name="use_static_base_tf" default="true"/>
+  <arg name="use_static_base_tf" default="false"/>
   <arg name="use_posture_keeper" default="true"/>
   <arg name="posture_profile" default="display"/>
+  <arg name="ros_control_config" default="$(find vlmap_bringup)/config/hsr_ros_control.yaml"/>
+  <arg name="base_drive_config" default="$(find vlmap_bringup)/config/hsr_base_drive.yaml"/>
 
   <arg name="robot_model_name" default="hsrb"/>
   <arg name="robot_x" default="0.0"/>
@@ -33,12 +35,35 @@
          command="$(find xacro)/xacro '$(find hsr_description)/robots/hsrb4s.urdf.xacro'"/>
   <node pkg="gazebo_ros" type="spawn_model" name="spawn_hsrb" output="screen"
         args="-urdf -param robot_description -model $(arg robot_model_name) -x $(arg robot_x) -y $(arg robot_y) -z $(arg robot_z) -Y $(arg robot_yaw)"/>
-  <node pkg="robot_state_publisher" type="robot_state_publisher" name="robot_state_publisher"/>
+  <rosparam command="load" ns="/$(arg robot_model_name)" file="$(arg ros_control_config)"/>
+  <node pkg="controller_manager" type="spawner" ns="$(arg robot_model_name)"
+        name="hsr_controller_spawner" output="screen"
+        args="joint_state_controller base_roll_controller head_pan_controller head_tilt_controller arm_lift_controller arm_flex_controller arm_roll_controller wrist_flex_controller wrist_roll_controller"/>
+  <node pkg="robot_state_publisher" type="robot_state_publisher" name="robot_state_publisher">
+    <remap from="joint_states" to="/$(arg robot_model_name)/joint_states"/>
+  </node>
   <node if="$(arg use_joint_state_publisher)" pkg="joint_state_publisher" type="joint_state_publisher" name="joint_state_publisher"/>
   <node if="$(arg use_posture_keeper)" pkg="vlmap_bringup" type="hsr_posture_keeper.py"
         name="hsr_posture_keeper" output="screen">
-    <param name="model_name" value="$(arg robot_model_name)"/>
+    <param name="controller_namespace" value="/$(arg robot_model_name)"/>
     <param name="profile" value="$(arg posture_profile)"/>
+  </node>
+  <rosparam command="load" ns="/$(arg robot_model_name)/base_drive" file="$(arg base_drive_config)"/>
+  <node pkg="vlmap_bringup" type="hsr_base_drive_controller.py" name="hsr_base_drive_controller" output="screen">
+    <param name="config_namespace" value="/$(arg robot_model_name)/base_drive"/>
+    <param name="cmd_vel_topic" value="/$(arg robot_model_name)/command_velocity"/>
+    <param name="joint_states_topic" value="/joint_states"/>
+    <param name="left_wheel_joint" value="base_l_drive_wheel_joint"/>
+    <param name="right_wheel_joint" value="base_r_drive_wheel_joint"/>
+  </node>
+  <node pkg="topic_tools" type="relay" name="hsr_joint_states_relay"
+        args="/$(arg robot_model_name)/joint_states /joint_states"/>
+  <node pkg="vlmap_bringup" type="hsr_ground_truth_odom_bridge.py" name="hsr_ground_truth_odom_bridge" output="screen">
+    <param name="input_topic" value="/$(arg robot_model_name)/odom_ground_truth"/>
+    <param name="output_topic" value="/odom"/>
+    <param name="odom_frame" value="odom"/>
+    <param name="base_frame" value="$(arg base_frame)"/>
+    <param name="publish_tf" value="true"/>
   </node>
   <node pkg="tf" type="static_transform_publisher" name="map_to_odom"
         args="0 0 0 0 0 0 map odom 100"/>
