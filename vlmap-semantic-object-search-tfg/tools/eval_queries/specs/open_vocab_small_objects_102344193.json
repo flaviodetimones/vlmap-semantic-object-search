@@ -1,0 +1,9 @@
+{
+  "scene_id": 0,
+  "scene_name": "102344193_0",
+  "_comment": "Living room + kitchen + bathroom + bedroom. Add only open-vocab objects with valid HSSD assets here. Bottle and teapot are valid; soap and ball are left out because this scene has no valid insertable asset for them in the current object catalog.",
+  "placements": [
+    {"object": "bottle", "query_target": "bottle", "furniture": "counter", "room_hint": "kitchen", "count": 1, "tags": ["level3", "needs_surrogate", "open_vocab"]},
+    {"object": "teapot", "query_target": "teapot", "furniture": "counter", "room_hint": "kitchen", "count": 1, "tags": ["level3", "needs_surrogate", "open_vocab"]}
+  ]
+}

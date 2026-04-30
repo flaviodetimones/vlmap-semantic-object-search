@@ -1,0 +1,4 @@
+external/hsr_meshes
+/ros_ws/devel/.private/hsr_meshes/share/hsr_meshes/cmake/hsr_meshesConfig.cmake /ros_ws/devel/share/hsr_meshes/cmake/hsr_meshesConfig.cmake
+/ros_ws/devel/.private/hsr_meshes/share/hsr_meshes/cmake/hsr_meshesConfig-version.cmake /ros_ws/devel/share/hsr_meshes/cmake/hsr_meshesConfig-version.cmake
+/ros_ws/devel/.private/hsr_meshes/lib/pkgconfig/hsr_meshes.pc /ros_ws/devel/lib/pkgconfig/hsr_meshes.pc

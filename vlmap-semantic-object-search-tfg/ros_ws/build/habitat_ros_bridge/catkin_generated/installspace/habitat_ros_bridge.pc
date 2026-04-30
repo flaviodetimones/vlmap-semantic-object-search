@@ -1,0 +1,8 @@
+prefix=/ros_ws/install
+
+Name: habitat_ros_bridge
+Description: Description of habitat_ros_bridge
+Version: 0.1.0
+Cflags: 
+Libs: -L${prefix}/lib 
+Requires: rospy nav_msgs sensor_msgs geometry_msgs tf2_ros

@@ -1,0 +1,1 @@
+/ros_ws/devel/.private/habitat_ros_bridge/lib/pkgconfig/habitat_ros_bridge.pc

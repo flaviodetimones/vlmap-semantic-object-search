@@ -1,0 +1,7 @@
+set(habitat_ros_bridge_SETUP_PY_SETUP_MODULE "setuptools")
+set(habitat_ros_bridge_SETUP_PY_VERSION "0.1.0")
+set(habitat_ros_bridge_SETUP_PY_SCRIPTS "")
+set(habitat_ros_bridge_SETUP_PY_PACKAGES "habitat_ros_bridge")
+set(habitat_ros_bridge_SETUP_PY_PACKAGE_DIRS "src/habitat_ros_bridge")
+set(habitat_ros_bridge_SETUP_PY_MODULES "")
+set(habitat_ros_bridge_SETUP_PY_MODULE_DIRS "")

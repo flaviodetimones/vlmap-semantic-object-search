@@ -204,3 +204,120 @@ python tools/run_yoloe_thresh_sweep.py \
 By default the sweep runs a single method, `Oe_Hp`, because the threshold is
 orthogonal to the orchestrator / heatmap axis. That keeps the cost low while
 still exposing the precision / recall tradeoff of YOLOE verification.
+
+## Stressed Phase Evaluation
+
+To separate heatmap quality from orchestrator quality, derive stressed subsets
+from the existing normalized JSONLs:
+
+```bash
+python tools/make_stressed_eval_queries.py
+```
+
+This writes:
+
+- `tools/eval_queries/stressed_heatmap/{scene}.jsonl`
+- `tools/eval_queries/stressed_orchestrator/{scene}.jsonl`
+
+Run the heatmap phase over the stressed heatmap battery. The wrapper expands the
+filtered batch deterministically up to 500 queries per scene:
+
+```bash
+python tools/run_heatmap_phase_eval.py \
+    --scene-ids 0,1,2 \
+    --out /workspace/results/heatmap_phase/$(date +%Y%m%d_%H%M%S)
+```
+
+The wrapper writes:
+
+- `queries_500/{scene}.jsonl`
+- `heatmap_offline/...`
+- `aggregate_cross_scenes.csv`
+- `aggregate_cross_scenes.md`
+- `config.json`
+
+It also prunes all-zero / all-NaN metrics from the new phase summary and records
+the winning heatmap (`baseline` vs `postprocessed`) in `config.json`.
+
+Run the orchestrator phase over the stressed orchestrator battery. The wrapper
+expands the filtered batch deterministically up to 100 queries per scene and
+calls the existing 2x2 harness with only the two methods matching the selected
+heatmap:
+
+```bash
+python tools/run_orchestrator_phase_eval.py \
+    --scene-ids 0,1,2 \
+    --fixed-heatmap postprocessed \
+    --out /workspace/results/orchestrator_phase/$(date +%Y%m%d_%H%M%S)
+```
+
+This writes:
+
+- `queries_100/{scene}.jsonl`
+- the standard `pipeline_full/` outputs from `run_full_eval.py`
+- `aggregate_cross_scenes_pruned.csv`
+- `aggregate_cross_scenes_pruned.md`
+- `config.json`
+
+## Open-vocab evaluation
+
+To validate the semantic extension for non-VLMaps objects before moving to ROS,
+there is a dedicated workflow around the current base configuration
+(`Ob_Hp + YOLOE 0.30`).
+
+### 1. Build the open-vocab query battery
+
+The generator scans the real HSSD scene instances and emits one JSONL per scene
+under `tools/eval_queries/open_vocab/`:
+
+```bash
+python tools/build_open_vocab_eval_queries.py \
+    --include-room-object
+```
+
+Default shortlist:
+- `bottle`
+- `ball`
+- `laptop`
+- `book`
+- `soap`
+- `vase`
+- `candle`
+- `basket`
+- `printer`
+- `teapot`
+
+The script prints, per scene, which of those targets are naturally present and
+which ones are still missing from the current HSSD scenes.
+
+### 2. Run the short open-vocab batch
+
+```bash
+python tools/run_open_vocab_eval.py \
+    --scene-ids 0,1,2 \
+    --out /workspace/results/open_vocab_eval/$(date +%Y%m%d_%H%M%S)
+```
+
+This reuses `run_full_eval.py` internally but defaults to the current best
+configuration:
+- `heatmap = postprocessed`
+- `orchestrator = baseline`
+- `yoloe_conf_thresh = 0.30`
+
+### 3. Inspect the focused analysis
+
+The wrapper writes:
+
+- `open_vocab_analysis/open_vocab_by_method.csv`
+- `open_vocab_analysis/open_vocab_by_method.md`
+- `open_vocab_analysis/open_vocab_by_scene_method.csv`
+- `open_vocab_analysis/open_vocab_by_target.csv`
+- optional plots under `open_vocab_analysis/plots/`
+
+Main metrics kept for this phase:
+- `found_rate`
+- `object_sr`
+- `wrong_visits`
+- `mean_pose_updates`
+- confirmation source breakdown
+- semantic resolution source breakdown (`direct` / `llm` / `fallback`)

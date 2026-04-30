@@ -1,0 +1,15 @@
+<?xml version="1.0"?>
+<package format="2">
+  <name>yoloe_verifier</name>
+  <version>0.1.0</version>
+  <description>Wraps the YOLOE open-vocabulary verifier as a ROS service.</description>
+  <maintainer email="mgarciablasco26@gmail.com">Mario Garcia Blasco</maintainer>
+  <license>MIT</license>
+
+  <buildtool_depend>catkin</buildtool_depend>
+
+  <depend>rospy</depend>
+  <depend>sensor_msgs</depend>
+  <depend>std_msgs</depend>
+  <depend>cv_bridge</depend>
+</package>

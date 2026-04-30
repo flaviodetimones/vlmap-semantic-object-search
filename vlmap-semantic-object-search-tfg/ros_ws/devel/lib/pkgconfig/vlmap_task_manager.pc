@@ -1,0 +1,1 @@
+/ros_ws/devel/.private/vlmap_task_manager/lib/pkgconfig/vlmap_task_manager.pc

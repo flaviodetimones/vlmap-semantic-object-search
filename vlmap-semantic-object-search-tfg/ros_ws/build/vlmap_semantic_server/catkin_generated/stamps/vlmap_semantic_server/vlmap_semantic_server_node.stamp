@@ -1,0 +1,128 @@
+#!/usr/bin/env python3
+"""Sprint 1 stub for the VLMap semantic server node.
+
+What this node will do in Sprint 2:
+  1. On startup, connect to tfg-sim via roslibpy/rosbridge to fetch the
+     VLMap obstacle map + region grid + per-room priors.
+  2. Expose /vlmap/query_room (vlmap_msgs/QueryRoom) for room ranking.
+  3. Expose /vlmap/query_candidates (custom srv) for heatmap candidates.
+
+Sprint 1 just publishes a heartbeat so the bringup smoke test can verify
+the node was launched successfully.
+"""
+
+from pathlib import Path
+import json
+import sys
+
+import numpy as np
+import rospy
+from std_msgs.msg import String
+
+from vlmap_semantic_server import VoronoiRoomProvider, load_room_centroids
+from vlmap_msgs.srv import QueryRoom, QueryRoomResponse, ResolveRoom, ResolveRoomResponse
+
+
+_VLMAPS_SUBMODULE = Path("/workspace/third_party/vlmaps")
+if _VLMAPS_SUBMODULE.exists():
+    sys.path.insert(0, str(_VLMAPS_SUBMODULE))
+
+try:
+    from vlmaps.utils.room_priors import compute_room_priors
+except Exception:  # pragma: no cover - runtime fallback inside the ROS container
+    compute_room_priors = None
+
+
+def _load_occupancy_map(path_str: str):
+    if not path_str:
+        return None
+    path = Path(path_str)
+    if not path.exists():
+        raise FileNotFoundError(f"occupancy map not found: {path}")
+    if path.suffix == ".npy":
+        return np.load(path)
+    if path.suffix == ".json":
+        with path.open("r", encoding="utf-8") as fh:
+            payload = json.load(fh)
+        data = payload["data"] if isinstance(payload, dict) and "data" in payload else payload
+        return np.asarray(data, dtype=np.int32)
+    raise ValueError(f"unsupported occupancy map format: {path.suffix}")
+
+
+def main() -> None:
+    rospy.init_node("vlmap_semantic_server", anonymous=False)
+    occupancy_path = rospy.get_param("~occupancy_path", "")
+    centroid_path = rospy.get_param("~room_centroids_path", "")
+    resolution = float(rospy.get_param("~map_resolution", 0.05))
+    origin_x = float(rospy.get_param("~map_origin_x", 0.0))
+    origin_y = float(rospy.get_param("~map_origin_y", 0.0))
+    room_provider = None
+    room_count = 0
+    if occupancy_path and centroid_path:
+        try:
+            occupancy = _load_occupancy_map(occupancy_path)
+            centroids = load_room_centroids(Path(centroid_path))
+            room_provider = VoronoiRoomProvider(occupancy, centroids)
+            room_count = len(room_provider.list_rooms())
+            rospy.loginfo(
+                "[vlmap_semantic_server] Voronoi provider ready - %d room(s) from %s",
+                room_count,
+                centroid_path,
+            )
+        except Exception as exc:
+            rospy.logwarn("[vlmap_semantic_server] failed to load room labeler inputs: %s", exc)
+
+    def _handle_query_room(req):
+        if room_provider is None:
+            return QueryRoomResponse(rooms=[], scores=[])
+        rooms = list(room_provider.list_rooms())
+        if not rooms:
+            return QueryRoomResponse(rooms=[], scores=[])
+        if compute_room_priors is None:
+            # Deterministic fallback if the VLMaps helper import is unavailable.
+            uniform = [1.0 / float(len(rooms)) for _ in rooms]
+            return QueryRoomResponse(rooms=rooms, scores=uniform)
+
+        priors = compute_room_priors(
+            req.category,
+            rooms,
+            objects_seen_by_room={},
+            llm_output=None,
+            heatmap_evidence=None,
+            query_type="indirect",
+        )
+        ranked = sorted(priors.items(), key=lambda kv: kv[1], reverse=True)
+        return QueryRoomResponse(
+            rooms=[room for room, _ in ranked],
+            scores=[float(score) for _, score in ranked],
+        )
+
+    def _handle_resolve_room(req):
+        if room_provider is None:
+            return ResolveRoomResponse(found=False, room_id="", x=0.0, y=0.0)
+        resolved = room_provider.resolve_room_name(req.room)
+        if not resolved:
+            return ResolveRoomResponse(found=False, room_id="", x=0.0, y=0.0)
+        centroid = room_provider.get_room_centroid(resolved)
+        if centroid is None:
+            return ResolveRoomResponse(found=False, room_id="", x=0.0, y=0.0)
+        row, col = centroid
+        x = origin_x + (float(col) + 0.5) * resolution
+        y = origin_y + (float(row) + 0.5) * resolution
+        return ResolveRoomResponse(found=True, room_id=resolved, x=float(x), y=float(y))
+
+    rospy.Service("/vlmap/query_room", QueryRoom, _handle_query_room)
+    rospy.Service("/vlmap/resolve_room", ResolveRoom, _handle_resolve_room)
+    rospy.loginfo("[vlmap_semantic_server] skeleton ready - Sprint 1/2 bridge")
+    pub = rospy.Publisher("/vlmap/heartbeat", String, queue_size=10)
+    rate = rospy.Rate(1.0)
+    while not rospy.is_shutdown():
+        pub.publish(String(data=f"vlmap_semantic_server alive rooms={room_count}"))
+        rate.sleep()
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except rospy.ROSInterruptException:
+        pass

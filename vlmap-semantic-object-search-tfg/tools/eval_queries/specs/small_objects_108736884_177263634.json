@@ -1,0 +1,13 @@
+{
+  "scene_id": 0,
+  "scene_name": "108736884_177263634_4",
+  "placements": [
+    {"object": "bottle", "query_target": "bottle", "furniture": "counter", "room_hint": "kitchen", "count": 1, "tags": ["level3", "needs_surrogate", "small_object"]},
+    {"object": "laptop", "query_target": "laptop", "furniture": "table", "room_hint": "office", "count": 1, "tags": ["level3", "needs_surrogate", "small_object"]},
+    {"object": "cup", "query_target": "mug", "furniture": "counter", "room_hint": "kitchen", "count": 1, "tags": ["level3", "needs_surrogate", "small_object"]},
+    {"object": "toaster", "query_target": "toaster", "furniture": "counter", "room_hint": "kitchen", "count": 1, "tags": ["level3", "needs_surrogate", "small_object"]},
+    {"object": "teapot", "query_target": "teapot", "furniture": "counter", "room_hint": "kitchen", "count": 1, "tags": ["level3", "needs_surrogate", "small_object"]},
+    {"object": "book", "query_target": "book", "furniture": "table", "room_hint": "living room", "count": 1, "tags": ["level3", "needs_surrogate", "small_object"]},
+    {"object": "book", "query_target": "book", "furniture": "table", "room_hint": "office", "count": 1, "tags": ["level3", "needs_surrogate", "small_object"]}
+  ]
+}

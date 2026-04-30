@@ -1,0 +1,1 @@
+/ros_ws/devel/.private/vlmap_bringup/lib/pkgconfig/vlmap_bringup.pc

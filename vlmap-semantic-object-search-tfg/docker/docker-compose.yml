@@ -57,10 +57,19 @@ services:
       - ROS_MASTER_URI=http://tfg-ros:11311
       - ROS_HOSTNAME=tfg-ros
       - ROS_MODE=${ROS_MODE:-shell}
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=graphics,utility,compute
     ports:
       - "9090:9090"
     stdin_open: true
     tty: true
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
     networks:
       - tfg-net
 

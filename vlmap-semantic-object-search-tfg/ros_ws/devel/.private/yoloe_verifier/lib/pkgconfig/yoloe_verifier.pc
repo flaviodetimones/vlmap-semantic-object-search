@@ -1,0 +1,8 @@
+prefix=/ros_ws/devel/.private/yoloe_verifier
+
+Name: yoloe_verifier
+Description: Description of yoloe_verifier
+Version: 0.1.0
+Cflags: 
+Libs: -L${prefix}/lib 
+Requires: rospy sensor_msgs std_msgs cv_bridge

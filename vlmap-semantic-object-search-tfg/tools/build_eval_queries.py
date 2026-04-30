@@ -36,9 +36,9 @@ DEFAULT_HSSD_CONFIG = (
     "/workspace/data/versioned_data/hssd-hab/hssd-hab.scene_dataset_config.json"
 )
 
-OBJECT_SHARE = 0.60
-ROOM_SHARE = 0.20
-ROOM_OBJECT_SHARE = 0.15
+OBJECT_SHARE = 0.75
+ROOM_SHARE = 0.0
+ROOM_OBJECT_SHARE = 0.25
 
 from tools.nav_batch_queries import _build_present_categories
 from vlmaps.robot.habitat_lang_robot import HabitatLanguageRobot

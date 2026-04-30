@@ -1,0 +1,1 @@
+/ros_ws/devel/.private/vlmap_semantic_server/share/vlmap_semantic_server/cmake/vlmap_semantic_serverConfig-version.cmake

@@ -1,0 +1,8 @@
+prefix=/ros_ws/install
+
+Name: vlmap_task_manager
+Description: Description of vlmap_task_manager
+Version: 0.1.0
+Cflags: 
+Libs: -L${prefix}/lib 
+Requires: rospy std_msgs geometry_msgs move_base_msgs vlmap_msgs

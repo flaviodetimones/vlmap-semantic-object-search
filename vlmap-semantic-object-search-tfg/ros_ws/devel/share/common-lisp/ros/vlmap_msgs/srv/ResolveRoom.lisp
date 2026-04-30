@@ -1,0 +1,1 @@
+/ros_ws/devel/.private/vlmap_msgs/share/common-lisp/ros/vlmap_msgs/srv/ResolveRoom.lisp

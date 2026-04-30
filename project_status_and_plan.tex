@@ -9,6 +9,8 @@
 \usepackage{booktabs}
 \usepackage{array}
 \usepackage{xcolor}
+\usepackage{pgfplots}
+\pgfplotsset{compat=1.18}
 \usepackage{longtable}
 \usepackage{amsmath}
 \usepackage{amssymb}
@@ -960,22 +962,48 @@ automatizado, sin etiquetado manual.
 
 \subsection{Objetos pequeños no representados en el VLMap}
 
-Usar \texttt{place\_objects.py} (ya implementado) para insertar objetos de
-interés que no aparecen en VLMap:
+Usar \texttt{tools/place\_small\_objects.py} (sucesor de
+\texttt{place\_objects.py}, con \emph{deconfliction} de hosts y
+\emph{grid offset} de 35\,cm) para insertar objetos de interés que no
+aparecen en VLMap. Catálogo oficial tras la criba del 27.04:
 
 \begin{itemize}
-  \item \texttt{bottle}, \texttt{cup}, \texttt{box}, \texttt{backpack},
-        \texttt{ball}, \texttt{laptop}.
+  \item \textbf{Cocina (encimera)}: \texttt{bottle}, \texttt{mug},
+        \texttt{teapot}, \texttt{toaster}, \texttt{coffee maker}.
+  \item \textbf{Multi-room}: \texttt{laptop} (office/bedroom/living),
+        \texttt{book} (bedroom/office/living).
   \item Colocados en posiciones conocidas para evaluación con
-        \emph{ground truth}.
+        \emph{ground truth} a nivel de habitación.
   \item Visibles para YOLOE pero ausentes del VLMap pre-construido.
 \end{itemize}
+
+Quedan explícitamente fuera \texttt{kettle} (morfología confundible con
+\texttt{teapot}, mismo prior y mismas habitaciones; su presencia
+contaminaba la matriz de confusión sin medir nada nuevo) y
+\texttt{trash bin} (aparece en demasiadas habitaciones sin prior
+dominante, lo que vuelve indistinguible la búsqueda \emph{room-aware} de
+una búsqueda plana y mide más al detector que al razonamiento).
 
 Este conjunto de pruebas es el más representativo de la hipótesis del
 proyecto: para encontrar una taza, el robot tiene que razonar que vive
 típicamente en la cocina, sobre encimeras o mesas, y verificar visualmente
 con YOLOE. Un sistema sin los tres niveles falla por construcción en este
 escenario.
+
+\paragraph{Próximo paso: \emph{N}~variantes del mapa por escena.}
+La métrica actual evalúa una colocación canónica (objeto en su zona más
+probable) y mide si el robot la resuelve. La fase siguiente, ya prevista
+en el plan, consiste en generar \emph{N}~versiones del mismo mapa con
+los mismos objetos colocados en posiciones plausibles distintas (p.\,ej.\
+botella en encimera, en mesa de comedor o en mesilla; libro en
+escritorio, mesilla o sofá). El robot ejecutará la misma query sobre las
+\emph{N}~variantes y se medirá la \emph{degradación graceful} del
+sistema cuando el objeto no está en la habitación más probable. Es la
+prueba operativa de la hipótesis: un sistema room-aware debe degradar
+suavemente al moverse del prior al \emph{long tail}, mientras que un
+sistema plano debería degradar abruptamente. La generación automática
+de variantes y la agregación cross-variant queda como tarea posterior a
+\texttt{post\_placement\_v2}.
 
 % =============================================================================
 \section{Apartado extra: comparación baseline vs.\ executor}
@@ -1152,6 +1180,113 @@ queries que el executor falla son justo las que ya tenían un
 orquestación?»}. El trabajo restante ya no es infraestructura, sino lanzar las
 baterías sobre escenas HSSD representativas, revisar salidas y comentar
 resultados.
+
+\subsection*{Calibración del umbral de confianza de YOLOE}
+\label{sec:yoloe-thresh}
+
+El verificador visual YOLOE actúa como filtro final del pipeline: cuando el
+agente llega a un candidato propuesto por el heatmap, decide si la detección
+supera un umbral de confianza ($\tau$) para confirmar el objetivo. Un $\tau$
+demasiado bajo aceptaría detecciones débiles (riesgo de falsos positivos);
+uno demasiado alto rechazaría detecciones reales (falsos negativos), forzando
+al agente a seguir explorando.
+
+Para fijar este parámetro de forma justificada se realizó un barrido
+controlado sobre $\tau \in \{0.30, 0.40, 0.50, 0.60\}$ en una única configuración
+del 2$\times$2 (executor + heatmap postprocesado, $Oe\_Hp$) y una única escena
+($102344193\_0$, 50 queries de muebles y categorías VLMap). Como las decisiones
+de navegación, selección de habitación y ranking de candidatos no dependen de
+$\tau$, basta con barrer un método para aislar el efecto del verificador; los
+otros tres métodos del 2$\times$2 heredarán el valor seleccionado.
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{lccccc}
+\toprule
+$\tau$ & SR & Obj.\ SR & Found rate & Wrong visits & CFR \\
+\midrule
+\textbf{0.30} & \textbf{0.82} & \textbf{0.76} & \textbf{0.62} & \textbf{0.84} & 0.18 \\
+0.40 & 0.76 & 0.68 & 0.56 & 1.26 & 0.18 \\
+0.50 & 0.78 & 0.71 & 0.56 & 1.42 & 0.18 \\
+0.60 & 0.66 & 0.55 & 0.44 & 2.63 & 0.18 \\
+\bottomrule
+\end{tabular}
+\caption{Métricas end-to-end para los cuatro umbrales evaluados sobre $Oe\_Hp$
+en $102344193\_0$ (50 queries).}
+\label{tab:yoloe-thresh}
+\end{table}
+
+\begin{figure}[h]
+\centering
+\begin{tikzpicture}
+\begin{axis}[
+    width=0.85\linewidth, height=6cm,
+    xlabel={Umbral de confianza $\tau$},
+    ylabel={Tasa},
+    xmin=0.28, xmax=0.62,
+    ymin=0.0, ymax=1.0,
+    xtick={0.30,0.40,0.50,0.60},
+    legend style={at={(1.02,1)}, anchor=north west, font=\small},
+    grid=both, grid style={gray!20},
+    cycle list name=color,
+    mark options={solid},
+]
+\addplot+[mark=*]   coordinates {(0.30,0.82) (0.40,0.76) (0.50,0.78) (0.60,0.66)};
+\addplot+[mark=square*] coordinates {(0.30,0.76) (0.40,0.68) (0.50,0.71) (0.60,0.55)};
+\addplot+[mark=triangle*] coordinates {(0.30,0.62) (0.40,0.56) (0.50,0.56) (0.60,0.44)};
+\legend{SR, Object SR, Found rate}
+\end{axis}
+\end{tikzpicture}
+\caption{Evolución de SR, Object SR y tasa de detección al aumentar $\tau$.
+La degradación es monótona a partir de $\tau=0.40$.}
+\label{fig:yoloe-thresh-rates}
+\end{figure}
+
+\begin{figure}[h]
+\centering
+\begin{tikzpicture}
+\begin{axis}[
+    width=0.85\linewidth, height=5cm,
+    xlabel={Umbral de confianza $\tau$},
+    ylabel={Visitas erróneas (media)},
+    xmin=0.28, xmax=0.62,
+    ymin=0.5, ymax=3.0,
+    xtick={0.30,0.40,0.50,0.60},
+    grid=both, grid style={gray!20},
+    mark options={solid},
+]
+\addplot+[mark=*, color=red] coordinates {(0.30,0.84) (0.40,1.26) (0.50,1.42) (0.60,2.63)};
+\end{axis}
+\end{tikzpicture}
+\caption{Visitas erróneas medias por query (candidatos inspeccionados pero
+no confirmados) en función de $\tau$. El crecimiento monótono indica que el
+verificador rechaza cada vez más detecciones reales.}
+\label{fig:yoloe-thresh-wrong}
+\end{figure}
+
+\paragraph{Análisis.}
+La métrica CFR (\emph{Correct First Room}) se mantiene constante en $0.18$ para
+los cuatro umbrales, lo que confirma que el experimento aísla correctamente el
+efecto del verificador: la navegación y la selección de habitación no se ven
+alteradas. Las tres métricas que sí dependen del verificador (SR, Object SR y
+\emph{found rate}, Figura~\ref{fig:yoloe-thresh-rates}) muestran su valor
+máximo en $\tau=0.30$ y caen al aumentar el umbral. La tasa de visitas erróneas
+(Figura~\ref{fig:yoloe-thresh-wrong}) crece de forma monótona, llegando a
+triplicarse entre $\tau=0.30$ ($0.84$) y $\tau=0.60$ ($2.63$): el agente
+inspecciona más muebles candidatos antes de aceptar uno como verificado.
+
+\paragraph{Decisión.}
+Se selecciona $\tau=0.30$ por maximizar SR y Object SR y minimizar las visitas
+erróneas. Este valor se utiliza en todos los métodos del 2$\times$2 oficial.
+
+\paragraph{Limitaciones.}
+La medida directa de la tasa de falsos positivos del verificador requeriría
+\emph{queries negativas} (objetivos ausentes en la escena, donde cualquier
+\texttt{found=True} sería FP puro) o \emph{ground-truth} a nivel de instancia
+para comparar la posición confirmada con la posición real del objetivo.
+Ninguno de los dos esquemas estaba disponible en este trabajo y se considera
+una línea de mejora del banco de evaluación.
 
 % =============================================================================
 \section{Extensión futura: ROS\,1 Noetic + Toyota HSR}
@@ -2058,6 +2193,352 @@ disponibilidad del robot HSR en el laboratorio V4R del TU Wien.
         falta a partir de ahora es usarlo sobre escenas y JSONLs reales para
         producir resultados y discutirlos en la memoria.
 
+\end{enumerate}
+
+% =============================================================================
+\subsection*{23 de abril de 2026}
+% =============================================================================
+
+\begin{enumerate}
+
+  \item \textbf{Limpieza del dataset HSSD}: se reduce el listado de escenas
+        disponibles a las tres que se usarán en la evaluación oficial:
+        \texttt{102344193\_0}, \texttt{102344280\_0} y
+        \texttt{108736884\_177263634\_4}. Las restantes (variantes y dos
+        carpetas con nombres corruptos generadas por capturas accidentales de
+        \texttt{stderr} durante el \emph{collect}) se eliminan de
+        \texttt{data/vlmaps\_dataset\_hssd/}. El menú interactivo refleja ya
+        sólo \texttt{scene\_id} 0/1/2.
+
+  \item \textbf{Reversión de la rama room-aware en el harness de evaluación}:
+        tras un día con seis métodos
+        (orquestador~$\times$~heatmap~$\times$~room-aware) se decide volver al
+        2$\times$2 original (\texttt{Ob\_Hb}, \texttt{Ob\_Hp}, \texttt{Oe\_Hb},
+        \texttt{Oe\_Hp}). Razón: el switch room-aware no es una variable
+        independiente de evaluación sino una decisión arquitectónica del
+        executor, y mantenerlo como eje del harness multiplicaba el coste sin
+        aportar comparaciones nuevas para el nivel actual (muebles y
+        habitaciones). \texttt{tools/eval\_methods.py} y
+        \texttt{tools/run\_full\_eval.py} vuelven a la matriz de cuatro celdas.
+
+  \item \textbf{Calibración del umbral de confianza de YOLOE}: se introduce un
+        sweep dedicado al verificador visual sin barrer los cuatro métodos del
+        2$\times$2. Justificación: el conf-thresh sólo afecta la fase de
+        verificación al llegar al candidato; las decisiones de navegación,
+        heatmap y selección de habitación son independientes. Por tanto basta
+        con barrer un único método (\texttt{Oe\_Hp}) para aislar el efecto del
+        umbral.
+
+  \item \textbf{Nueva herramienta \texttt{tools/run\_yoloe\_thresh\_sweep.py}}
+        (encargada a Codex). Corre \texttt{run\_nav\_eval.py} repetidamente
+        sobre la misma escena y JSONL, una vez por threshold, propagando el
+        valor vía \texttt{VLMAPS\_YOLOE\_CONF\_THRESH}. Al terminar, agrega los
+        manifests y produce \texttt{compare\_thresh.csv} y
+        \texttt{compare\_thresh.md} con una fila por threshold y columnas SR,
+        Object~SR, Found~rate, Wrong~visits, CFR, CT2R, Early~Stop~Rate.
+        Convive sin tocar el harness 2$\times$2 ni el submódulo \texttt{vlmaps}.
+
+  \item \textbf{Resultado del barrido sobre $\{0.30, 0.40, 0.50, 0.60\}$}
+        (escena \texttt{102344193\_0}, 50 queries, método \texttt{Oe\_Hp}):
+        $\tau=0.30$ maximiza SR (\textbf{0.82}), Object~SR (\textbf{0.76}) y
+        \emph{found rate} (\textbf{0.62}) y minimiza las visitas erróneas
+        (\textbf{0.84}). A partir de $\tau=0.40$ la degradación es monótona:
+        las visitas erróneas se triplican y la SR cae 16~puntos en $\tau=0.60$.
+        La constancia de CFR ($0.18$ en los cuatro runs) confirma que el
+        experimento aísla correctamente el verificador y no contamina la
+        navegación. Los detalles cuantitativos y la decisión están integrados
+        en la subsección \emph{Calibración del umbral de confianza de YOLOE}
+        del bloque de testing.
+
+  \item \textbf{Discusión honesta sobre la medición de falsos positivos}:
+        durante el análisis se descarta el indicador \emph{FP-proxy} inicial
+        (\texttt{found} $\land$ $\neg$\texttt{success} sobre queries
+        \texttt{room\_object}). Razones: (i)~el \emph{ground truth} del
+        \emph{benchmark} es a nivel de habitación, no de instancia, por lo que
+        encontrar una instancia válida del mismo objeto en otra habitación se
+        contabiliza erróneamente como falso positivo; (ii)~el agente detiene la
+        búsqueda en la primera confirmación, ocultando posibles FPs latentes en
+        otras habitaciones; (iii)~con sólo 8 queries \texttt{room\_object} el
+        indicador es estadísticamente inservible. Se documenta como limitación
+        del banco de evaluación que una medición directa de FPs requeriría
+        \emph{queries negativas} (objetivo ausente en la escena) o
+        \emph{ground-truth} de instancia.
+
+  \item \textbf{Decisión adoptada}: se mantiene $\tau=0.30$ como umbral de
+        confianza para todos los métodos del 2$\times$2 oficial. La elección
+        queda justificada documentalmente (tabla, gráficos y discusión) en la
+        sección de testing, evitando aparecer como un default arbitrario.
+
+  \item \textbf{Decisión estratégica: activar la migración a ROS\,1 Noetic
+        antes que el nivel~3}. Tras revisar el coste real de añadir nivel~3
+        (objetos pequeños) directamente sobre Habitat y luego portarlo a ROS,
+        se concluye que esa secuencia obliga a iterar dos veces sobre los
+        mismos componentes (Phase~G, surrogate furniture, YOLOE bridge,
+        harness). Se reordena el roadmap para migrar primero el stack a
+        ROS\,1 Noetic + Gazebo y desarrollar el nivel~3 directamente sobre el
+        stack final. Plazo asumido para la migración completa: \textbf{un mes}
+        (hasta el 23~de~mayo de 2026).
+
+  \item \textbf{Renuncia explícita a HSSD como dependencia obligatoria}: las
+        escenas pasarán a ser \emph{house worlds} de Gazebo (HSR oficial,
+        AWS RoboMaker) o iGibson (15 apartamentos basados en escaneos reales,
+        utilizado por MoMa-LLM). El razonamiento por habitaciones, surrogate
+        furniture y verificación con YOLOE son agnósticos a la fuente de la
+        escena.
+
+  \item \textbf{Esquema de etiquetado de habitaciones por centroides
+        + Voronoi} (estilo MoMa-LLM): se sustituye el sistema de polígonos
+        \texttt{semantic\_config.json} por una partición de Voronoi sobre
+        centroides marcados manualmente (un \emph{click} por habitación). El
+        mismo esquema vale para escenas Gazebo, iGibson y, más adelante, para
+        el laboratorio físico. Coste de anotación: 5--10 minutos por escena.
+        Implementación en \texttt{room\_provider} estimada en una sesión
+        manteniendo la interfaz pública.
+
+  \item \textbf{Inspiración explícita en MoMa-LLM} (Honerkamp et~al.,
+        RSS SemRob 2024): adopción conceptual de tres ideas del paper, con
+        re-implementación propia y \emph{sin copiar código} (compromiso de
+        integridad académica). Las ideas adoptadas son: (i)~clustering de
+        habitaciones por Voronoi; (ii)~vocabulario de acciones de alto nivel
+        (ya parcialmente cubierto por la Phase~F existente); (iii)~métrica
+        AUC-E (área bajo la curva de eficiencia) como complemento al SR a
+        \emph{budget} fijo, para reportar resultados en la memoria.
+
+  \item \textbf{Continuidad de Docker en host distinto}: la migración mantiene
+        Docker como mecanismo de empaquetado. El contenedor pasa de
+        \texttt{tfg-sim} (Habitat-Sim sobre Ubuntu~20.04) a un nuevo contenedor
+        Noetic+Gazebo sobre Ubuntu~20.04. El usuario sigue trabajando desde su
+        host Ubuntu~22.04 sin reinstalar nada en el host. Cuando se traslade el
+        proyecto a un equipo nativo Ubuntu~20.04, el contenedor sigue siendo
+        válido (ROS nativo en el host se considera optimización opcional, no
+        requisito).
+
+\end{enumerate}
+
+\subsection*{24 de abril de 2026 --- Inserción real de objetos pequeños y \emph{deconfliction} del placer}
+
+\begin{enumerate}
+  \item \textbf{Reducción del dataset HSSD a tres escenas operativas}:
+        tras la limpieza del 23.04, las escenas activas para evaluación
+        de objetos pequeños quedan fijadas en \texttt{102344193\_0}
+        (single-floor, 8 habitaciones, balcony interior), \texttt{102344280\_0}
+        (15 habitaciones, ${\sim}447\,\text{m}^2$, escena principal del
+        proyecto) y \texttt{108736884\_177263634\_4} (escena con
+        \texttt{office} explícita, necesaria para validar el caso
+        multi-room). Otras escenas evaluadas
+        (\texttt{107734254}, \texttt{107734479} y variantes) se
+        descartan: bancos y otomanas bloqueando el piano impedían el
+        plan de movimiento del robot, y la cobertura del navmesh era
+        irregular tras los \emph{collect}. Las carpetas se eliminan de
+        \texttt{data/vlmaps\_dataset\_hssd/} desde dentro del contenedor
+        para evitar conflictos de permisos.
+  \item \textbf{Spawn fijo por escena en \texttt{collect\_hssd\_dataset.py}}:
+        se añade el flag \texttt{-{}-start-pos X Z} al script de
+        colección. El valor se snappea al navmesh con
+        \texttt{sim.pathfinder.snap\_point(\dots)} y la \texttt{Y} se
+        deja libre para que la lleve la malla. El menú interactivo
+        (\texttt{docker/menu.sh}) define un diccionario
+        \texttt{\_SPAWN\_POINTS} por \texttt{scene\_id} y propaga el
+        flag automáticamente, evitando \emph{spawns} aleatorios encima
+        de camas o dentro de armarios que invalidaban la colección.
+  \item \textbf{Inventario de objetos a colocar}: se redacta una primera
+        \emph{spec} JSON por escena bajo
+        \texttt{tools/eval\_queries/specs/small\_objects\_*.json} con
+        ocho entradas (\texttt{bottle}, \texttt{laptop}, \texttt{mug},
+        \texttt{kettle}, \texttt{toaster}, \texttt{coffee\,maker},
+        \texttt{teapot}, \texttt{trash\,bin}). Cada entrada lleva
+        \texttt{furniture}, \texttt{room\_hint} y \texttt{count}. Se
+        crea \texttt{tools/place\_small\_objects.py} que carga la
+        \emph{spec}, busca instancias de la \texttt{furniture} objetivo
+        dentro de la habitación indicada y escribe un nuevo
+        \texttt{*.scene\_instance.json} con los \emph{placements}
+        materializados. El fichero original se preserva como
+        \texttt{*.before\_placements.json}.
+  \item \textbf{Ampliación de \texttt{room\_priors.py} y
+        \texttt{object\_priors.py} con los nuevos targets nivel-3}: se
+        añaden entradas para \texttt{kettle}, \texttt{toaster},
+        \texttt{coffee maker}, \texttt{mug}, \texttt{trash bin},
+        \texttt{printer}, \texttt{basketball}, etc., tanto en la
+        \texttt{\_MANUAL\_TABLE} como en la tabla de
+        co-ocurrencia y en los \texttt{\_SEMANTIC\_ALIASES}. El cambio
+        es aditivo: ningún prior existente se modifica.
+  \item \textbf{Diagnóstico del bug de placement (\texttt{kettle 0/6})}:
+        el primer \emph{full eval} con la spec inicial (50 queries)
+        produce SR global 14\% (\emph{baseline}). Tras varias rondas
+        de afinado de la pipeline de búsqueda (\texttt{post\_fix\_v1}
+        $\rightarrow$ \texttt{v7}) se llega a SR 44\% pero
+        \texttt{kettle} sigue dando \textbf{0/6} en todos los runs.
+        Inspeccionando el \texttt{scene\_instance.json} resultante se
+        descubre que \emph{los seis \emph{targets} de cocina}
+        (\texttt{bottle}, \texttt{kettle}, \texttt{toaster},
+        \texttt{coffee\,maker}, \texttt{mug}, \texttt{teapot})
+        comparten \emph{exactamente las mismas coordenadas XYZ} sobre
+        el primer \texttt{counter} del \texttt{kitchen}: el selector
+        determinista del placer devolvía siempre el primer candidato y
+        ninguna variabilidad espacial. Habitat colapsa los seis objetos
+        en el mismo punto y YOLOE solo ve uno.
+  \item \textbf{Fix: \emph{deconfliction} por (template\_id, XZ) con
+        \emph{grid offset}}: el placer se modifica para mantener un
+        registro \texttt{used\_host\_keys} y un contador
+        \texttt{host\_reuse\_count}. Antes de aceptar un candidato, se
+        reordena la lista de \emph{candidates} de manera
+        \emph{fresh-first}: hosts no usados se prueban antes de reciclar
+        uno ya ocupado. Cuando la reutilización es inevitable, se aplica
+        un \emph{offset} determinista en una rejilla 3$\times$3
+        (\texttt{\_grid\_offset}) con paso de \textbf{35\,cm} sobre
+        \emph{furniture} y de \textbf{30\,cm} sobre suelo. El cambio es
+        puramente aditivo y no toca la lógica de búsqueda. La
+        verificación a mano sobre \texttt{102344193\_0} muestra los
+        seis objetos repartidos por el counter en la rejilla esperada.
+  \item \textbf{Resultado del \emph{run} \texttt{post\_placement\_full}}:
+        SR global pasa de 44\% a \textbf{68\%} (34/50). El salto de
+        +24~puntos viene de un único cambio no relacionado con la
+        búsqueda. \texttt{kettle} pasa de 0/6 a 3/6 y \texttt{teapot}
+        de 4/8 a 7/8. Las regresiones (\texttt{trash\,bin} 3/6 $\to$ 2/6)
+        se atribuyen al \emph{floor offset} de 80\,cm que mueve el bin
+        fuera del centroide de la habitación; queda como TODO reducirlo.
+  \item \textbf{Bug de routing identificado pero no corregido}: la query
+        \emph{``the laptop in the bedroom''} se enruta a la sala de estar
+        cuando los \emph{room\_scores} están casi empatados
+        (\texttt{bedroom}=0.37 vs \texttt{living\,room}=0.35). El
+        \emph{room hint} explícito de la query no rompe el empate. Es un
+        bug del selector de habitación, fuera del alcance del placer; se
+        registra en \texttt{tools/HOWTO\_validate\_small\_objects.md}
+        como follow-up para
+        \texttt{vlmaps/policy/strategic\_policy.py}.
+\end{enumerate}
+
+\subsection*{27 de abril de 2026 --- Desbloqueo de \texttt{laptop} en el catálogo y criba del set de objetos}
+
+\begin{enumerate}
+  \item \textbf{Diagnóstico del bug de catálogo de \texttt{laptop}}:
+        el placer registraba sistemáticamente
+        \texttt{[skip] no HSSD template for object 'laptop'} en dos de
+        las tres escenas. El CSV
+        \texttt{object\_categories\_filtered.csv} contenía únicamente
+        identificadores de la familia \texttt{Laptop\_X}, que no llevan
+        \texttt{.object\_config.json} en HSSD. El filtro
+        \texttt{\_available\_object\_handles()} los descartaba a todos
+        antes de llegar a la fase de elección, dejando la categoría
+        vacía.
+  \item \textbf{Fix: \texttt{\_EXTRA\_CATALOG} aditivo}: se añade un
+        diccionario \texttt{\_EXTRA\_CATALOG} en
+        \texttt{tools/place\_small\_objects.py} con ocho hashes de
+        portátiles reales (Toshiba Satellite, intel celeron 15.4,
+        Computer Laptop, Sony Vaio, HP Pavilion, Toshiba L300D, MacBook
+        Pro 17 y MacBook Pro 15.4) que sí traen el \texttt{.object\_config.json}
+        completo. \texttt{\_load\_object\_catalog()} fusiona estos
+        hashes a posteriori, respetando el filtro de disponibilidad
+        en disco. El cambio es aditivo: el resto del catálogo CSV se
+        carga igual.
+  \item \textbf{Reducción del \emph{floor offset} a 30\,cm}: el offset
+        para \emph{placements} sobre suelo (usado por \texttt{trash bin})
+        se baja de 80\,cm a 30\,cm. Ya no hay regresión teórica para el
+        bin actual y se protege contra futuros \emph{multi-floor placements}.
+  \item \textbf{Criba del catálogo de objetos pequeños}: tras revisar
+        los resultados de \texttt{post\_placement\_full} y discutir las
+        propiedades semánticas de cada \emph{target}, se decide
+        \emph{quitar} \texttt{trash bin} y \texttt{kettle} y
+        \emph{añadir} \texttt{book}. El razonamiento:
+        \begin{itemize}
+          \item \texttt{trash bin} aparece en cinco habitaciones
+                (\texttt{kitchen}, \texttt{bathroom}, \texttt{bedroom},
+                \texttt{office}, \texttt{hallway}) sin prior dominante.
+                Esto vuelve la búsqueda \emph{room-aware} indistinguible
+                de una búsqueda plana M2: el sistema acaba probando
+                casi todas las habitaciones. Mide ruido del detector,
+                no calidad del razonamiento jerárquico.
+          \item \texttt{kettle} comparte exactamente el mismo prior que
+                \texttt{teapot} (\texttt{kitchen}\,$=$\,1.0), morfología
+                similar (asa $+$ pico) y YOLOE los confunde
+                sistemáticamente. Tener los dos en la batería no añade
+                señal experimental e infla la matriz de confusión.
+          \item \texttt{book} aporta el caso multi-room interpretable
+                (\texttt{office}\,${>}$\,\texttt{bedroom}\,${>}$\,\texttt{living}),
+                forma distintiva, abundancia de \emph{assets} con
+                \texttt{.object\_config.json} en HSSD y prior ya
+                cargado en \texttt{room\_priors.py}. Es justo el tipo de
+                consulta donde el razonamiento jerárquico debe destacar
+                frente al M2 plano.
+        \end{itemize}
+  \item \textbf{\emph{Specs} actualizadas}: las tres
+        \texttt{tools/eval\_queries/specs/small\_objects\_*.json}
+        pasan de 8 a 7 placements (50~$\to$~45 queries efectivas).
+        Distribución del nuevo \texttt{book}: en
+        \texttt{102344193\_0} y \texttt{102344280\_0} sobre
+        \texttt{table} en \texttt{bedroom}; en
+        \texttt{108736884\_177263634\_4} sobre \texttt{table} en
+        \texttt{living room} para diferenciarlo del \texttt{laptop} que
+        ya está en \texttt{office}.
+  \item \textbf{Documentación operativa}: se redacta
+        \texttt{tools/HOWTO\_validate\_small\_objects.md} con tres
+        procedimientos progresivos (\emph{quick check} de 1\,min, smoke
+        test de 5\,min, \emph{full eval} de ${\sim}$30\,min) y los
+        criterios de fallo esperados, de modo que la validación
+        post-placement se pueda repetir sin asistencia.
+  \item \textbf{Aclaración metodológica para la fase posterior}: el
+        régimen actual coloca cada objeto en su zona más probable
+        (caso \emph{happy path} room-aware). La métrica que cierra la
+        hipótesis exigirá generar \emph{N}~variantes del mismo mapa con
+        colocaciones plausibles distintas (botella en encimera vs.\
+        comedor vs.\ mesilla, libro en escritorio vs.\ mesilla vs.\
+        sofá) y comparar cómo degradan el sistema room-aware y el M2
+        plano cuando el objeto no está en su prior. Esa generación
+        automática y la agregación cross-variant quedan como trabajo
+        siguiente a \texttt{post\_placement\_v2}.
+\end{enumerate}
+
+\subsection*{28 de abril de 2026 --- Separación estable HSSD/ROS y arranque del Toyota HSR oficial en Gazebo}
+
+\begin{enumerate}
+  \item \textbf{Separación explícita de los dos frentes del proyecto}: se fija
+        que \texttt{tfg-sim} conserva intacto el pipeline Habitat/HSSD
+        (colección, evaluación, queries y métricas SR/CFR), mientras que
+        \texttt{tfg-ros} concentra la migración ROS\,1 Noetic + Gazebo. Esta
+        separación evita que los experimentos HSSD se rompan al iterar sobre
+        Gazebo, RViz, sensores o modelos del robot.
+  \item \textbf{Dos perfiles de robot en ROS}: se mantiene
+        \texttt{hsr\_proxy\_gazebo\_move\_base.launch} como backend navegable
+        ligero para validar \texttt{move\_base}, \texttt{rosbridge} y
+        \texttt{/vlmap/navigation\_result}. En paralelo se añade
+        \texttt{hsr\_gazebo\_move\_base.launch} para lanzar el Toyota HSR
+        oficial público como \texttt{hsrb}, con mallas, árbol TF y sensores más
+        fieles.
+  \item \textbf{Modelos oficiales públicos sin vendorear assets}: se incorporan
+        localmente \texttt{hsr\_meshes} y \texttt{hsr\_description} bajo
+        \texttt{ros\_ws/src/external/}. La reproducción queda automatizada con
+        \texttt{tools/fetch\_hsr\_official\_models.py}, pero los repositorios
+        externos se excluyen de Git para no subir mallas ni documentación de
+        terceros al repositorio del TFG.
+  \item \textbf{Compatibilidad Noetic del Xacro oficial}: el modelo público
+        requería adaptar sintaxis antigua de Xacro
+        (\texttt{macro} $\rightarrow$ \texttt{xacro:macro},
+        \texttt{insert\_block} $\rightarrow$ \texttt{xacro:insert\_block}) y
+        corregir nombres de transmisiones generados. El síntoma visible era que
+        el HSR aparecía sin cabeza o con enlaces colapsados en el origen; tras
+        los parches la cabeza queda situada correctamente y el modelo se puede
+        inspeccionar en Gazebo.
+  \item \textbf{Topics HSR alineados con sensores reales}: la configuración
+        ROS ya referencia \texttt{/hsrb/base\_scan},
+        \texttt{/hsrb/odom\_ground\_truth},
+        \texttt{/hsrb/head\_rgbd\_sensor/rgb/image\_rect\_color},
+        \texttt{/hsrb/head\_rgbd\_sensor/depth\_registered/image\_rect\_raw},
+        \texttt{/hsrb/head\_rgbd\_sensor/rgb/camera\_info},
+        \texttt{/hsrb/head\_rgbd\_sensor/depth\_registered/camera\_info} y
+        \texttt{/hsrb/head\_rgbd\_sensor/depth\_registered/rectified\_points}.
+        El siguiente checkpoint técnico no es mover todavía el robot físico,
+        sino visualizar y validar estos topics en RViz.
+  \item \textbf{Próximos pasos}: primero se debe construir un panel RViz con
+        \texttt{RobotModel}, \texttt{TF}, laser, RGB, depth y nube de puntos;
+        después validar la cadena \texttt{map $\rightarrow$ odom
+        $\rightarrow$ base\_footprint $\rightarrow$ base\_link
+        $\rightarrow$ head\_rgbd\_sensor\_rgb\_frame}; después conectar
+        \texttt{yoloe\_verifier} a un topic RGB configurable; después resolver
+        la movilidad del HSR oficial mediante controladores TMC o mantener el
+        proxy como backend de navegación; y finalmente crear un \emph{house
+        world} Gazebo con habitaciones anotadas mediante centroides + Voronoi.
+        Manipulación, MoveIt, brazo y grasping se posponen hasta que navegación
+        y percepción sean estables.
 \end{enumerate}
 
 \end{document}

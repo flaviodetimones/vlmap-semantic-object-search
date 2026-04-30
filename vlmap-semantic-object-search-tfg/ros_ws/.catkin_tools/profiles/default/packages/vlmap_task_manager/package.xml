@@ -1,0 +1,16 @@
+<?xml version="1.0"?>
+<package format="2">
+  <name>vlmap_task_manager</name>
+  <version>0.1.0</version>
+  <description>Interprets natural-language instructions and emits SemanticGoals.</description>
+  <maintainer email="mgarciablasco26@gmail.com">Mario Garcia Blasco</maintainer>
+  <license>MIT</license>
+
+  <buildtool_depend>catkin</buildtool_depend>
+
+  <depend>rospy</depend>
+  <depend>std_msgs</depend>
+  <depend>geometry_msgs</depend>
+  <depend>move_base_msgs</depend>
+  <depend>vlmap_msgs</depend>
+</package>

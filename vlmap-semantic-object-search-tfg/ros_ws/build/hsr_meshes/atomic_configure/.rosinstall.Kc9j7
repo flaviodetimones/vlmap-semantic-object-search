@@ -1,0 +1,2 @@
+- setup-file:
+    local-name: /ros_ws/devel/.private/hsr_meshes/setup.sh

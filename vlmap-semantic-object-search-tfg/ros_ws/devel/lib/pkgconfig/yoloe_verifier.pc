@@ -1,0 +1,1 @@
+/ros_ws/devel/.private/yoloe_verifier/lib/pkgconfig/yoloe_verifier.pc

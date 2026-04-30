@@ -1,0 +1,8 @@
+prefix=/ros_ws/devel/.private/hsr_meshes
+
+Name: hsr_meshes
+Description: Description of hsr_meshes
+Version: 1.1.0
+Cflags: 
+Libs: -L${prefix}/lib 
+Requires: 

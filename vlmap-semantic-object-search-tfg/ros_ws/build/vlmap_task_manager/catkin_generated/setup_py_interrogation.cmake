@@ -1,0 +1,7 @@
+set(vlmap_task_manager_SETUP_PY_SETUP_MODULE "setuptools")
+set(vlmap_task_manager_SETUP_PY_VERSION "0.1.0")
+set(vlmap_task_manager_SETUP_PY_SCRIPTS "")
+set(vlmap_task_manager_SETUP_PY_PACKAGES "vlmap_task_manager")
+set(vlmap_task_manager_SETUP_PY_PACKAGE_DIRS "src/vlmap_task_manager")
+set(vlmap_task_manager_SETUP_PY_MODULES "")
+set(vlmap_task_manager_SETUP_PY_MODULE_DIRS "")

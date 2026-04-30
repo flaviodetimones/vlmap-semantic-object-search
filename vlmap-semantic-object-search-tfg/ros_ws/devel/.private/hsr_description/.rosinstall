@@ -1,0 +1,2 @@
+- setup-file:
+    local-name: /ros_ws/devel/.private/hsr_description/setup.sh

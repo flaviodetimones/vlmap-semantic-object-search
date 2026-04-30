@@ -1,0 +1,1 @@
+/ros_ws/devel/.private/hsr_description/lib/pkgconfig/hsr_description.pc

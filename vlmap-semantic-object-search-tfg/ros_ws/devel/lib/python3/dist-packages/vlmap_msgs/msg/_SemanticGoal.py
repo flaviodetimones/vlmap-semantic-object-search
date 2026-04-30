@@ -1,0 +1,1 @@
+/ros_ws/devel/.private/vlmap_msgs/lib/python3/dist-packages/vlmap_msgs/msg/_SemanticGoal.py

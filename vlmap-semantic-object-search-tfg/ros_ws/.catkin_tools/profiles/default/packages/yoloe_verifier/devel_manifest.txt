@@ -1,0 +1,6 @@
+yoloe_verifier
+/ros_ws/devel/.private/yoloe_verifier/share/yoloe_verifier/cmake/yoloe_verifierConfig-version.cmake /ros_ws/devel/share/yoloe_verifier/cmake/yoloe_verifierConfig-version.cmake
+/ros_ws/devel/.private/yoloe_verifier/share/yoloe_verifier/cmake/yoloe_verifierConfig.cmake /ros_ws/devel/share/yoloe_verifier/cmake/yoloe_verifierConfig.cmake
+/ros_ws/devel/.private/yoloe_verifier/lib/python3/dist-packages/yoloe_verifier/__init__.py /ros_ws/devel/lib/python3/dist-packages/yoloe_verifier/__init__.py
+/ros_ws/devel/.private/yoloe_verifier/lib/pkgconfig/yoloe_verifier.pc /ros_ws/devel/lib/pkgconfig/yoloe_verifier.pc
+/ros_ws/devel/.private/yoloe_verifier/lib/yoloe_verifier/yoloe_verifier_node /ros_ws/devel/lib/yoloe_verifier/yoloe_verifier_node

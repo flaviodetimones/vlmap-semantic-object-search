@@ -1,0 +1,87 @@
+#!/usr/bin/env python3
+"""Bridge terminal move_base results into a backend-neutral JSON topic."""
+
+from __future__ import annotations
+
+import json
+
+from move_base_msgs.msg import MoveBaseActionResult
+import rospy
+from std_msgs.msg import String
+from vlmap_msgs.msg import SemanticGoal
+
+from vlmap_task_manager import (
+    ActiveSemanticGoal,
+    active_goal_from_fields,
+    build_navigation_result_payload,
+    move_base_status_to_success,
+)
+
+
+def main() -> None:
+    rospy.init_node("vlmap_navigation_result_bridge", anonymous=False)
+    semantic_goal_topic = rospy.get_param("~semantic_goal_topic", "/vlmap/semantic_goal")
+    move_base_result_topic = rospy.get_param("~move_base_result_topic", "/move_base/result")
+    navigation_result_topic = rospy.get_param("~navigation_result_topic", "/vlmap/navigation_result")
+
+    pub = rospy.Publisher("/vlmap/heartbeat", String, queue_size=10)
+    result_pub = rospy.Publisher(navigation_result_topic, String, queue_size=10)
+    state = {"active_goal": None}
+
+    def _on_semantic_goal(msg: SemanticGoal) -> None:
+        active_goal = active_goal_from_fields(msg.room_id, msg.object_class, msg.metadata)
+        if active_goal is None:
+            rospy.logwarn(
+                "[vlmap_navigation_result_bridge] semantic goal missing navigation_token"
+            )
+            return
+        state["active_goal"] = active_goal
+        rospy.loginfo(
+            "[vlmap_navigation_result_bridge] tracking token=%s room=%s object=%s",
+            active_goal.token,
+            active_goal.room_id,
+            active_goal.object_class,
+        )
+
+    def _on_move_base_result(msg: MoveBaseActionResult) -> None:
+        active_goal: ActiveSemanticGoal | None = state["active_goal"]
+        if active_goal is None:
+            rospy.logwarn(
+                "[vlmap_navigation_result_bridge] ignoring move_base result without active semantic goal"
+            )
+            return
+        status_code = int(msg.status.status)
+        if move_base_status_to_success(status_code) is None:
+            return
+        payload = build_navigation_result_payload(
+            active_goal,
+            status_code=status_code,
+            status_text=msg.status.text,
+        )
+        result_pub.publish(String(data=json.dumps(payload, sort_keys=True)))
+        rospy.loginfo(
+            "[vlmap_navigation_result_bridge] published token=%s success=%s",
+            payload["token"],
+            payload["success"],
+        )
+        state["active_goal"] = None
+
+    rospy.Subscriber(semantic_goal_topic, SemanticGoal, _on_semantic_goal, queue_size=10)
+    rospy.Subscriber(move_base_result_topic, MoveBaseActionResult, _on_move_base_result, queue_size=10)
+
+    rate = rospy.Rate(1.0)
+    rospy.loginfo("[vlmap_navigation_result_bridge] ready")
+    while not rospy.is_shutdown():
+        active_goal: ActiveSemanticGoal | None = state["active_goal"]
+        suffix = "idle"
+        if active_goal is not None:
+            suffix = f"tracking token={active_goal.token}"
+        pub.publish(String(data=f"vlmap_navigation_result_bridge alive {suffix}"))
+        rate.sleep()
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except rospy.ROSInterruptException:
+        pass

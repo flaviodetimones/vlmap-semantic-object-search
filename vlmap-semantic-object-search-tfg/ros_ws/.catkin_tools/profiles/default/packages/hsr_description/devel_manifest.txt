@@ -1,0 +1,4 @@
+external/hsr_description
+/ros_ws/devel/.private/hsr_description/share/hsr_description/cmake/hsr_descriptionConfig.cmake /ros_ws/devel/share/hsr_description/cmake/hsr_descriptionConfig.cmake
+/ros_ws/devel/.private/hsr_description/share/hsr_description/cmake/hsr_descriptionConfig-version.cmake /ros_ws/devel/share/hsr_description/cmake/hsr_descriptionConfig-version.cmake
+/ros_ws/devel/.private/hsr_description/lib/pkgconfig/hsr_description.pc /ros_ws/devel/lib/pkgconfig/hsr_description.pc

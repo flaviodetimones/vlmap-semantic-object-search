@@ -1,0 +1,9 @@
+{
+  "scene_id": 2,
+  "scene_name": "108736884_177263634_4",
+  "_comment": "Office + living room + dining room + kitchen + bathrooms. Only add what is still missing from the natural battery and has a valid HSSD asset: bottle and teapot.",
+  "placements": [
+    {"object": "bottle", "query_target": "bottle", "furniture": "counter", "room_hint": "kitchen", "count": 1, "tags": ["level3", "needs_surrogate", "open_vocab"]},
+    {"object": "teapot", "query_target": "teapot", "furniture": "table", "room_hint": "dining room", "count": 1, "tags": ["level3", "needs_surrogate", "open_vocab"]}
+  ]
+}

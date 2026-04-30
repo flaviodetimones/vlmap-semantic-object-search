@@ -1,0 +1,1 @@
+/ros_ws/devel/.private/vlmap_msgs/share/gennodejs/ros/vlmap_msgs/srv/QueryRoom.js

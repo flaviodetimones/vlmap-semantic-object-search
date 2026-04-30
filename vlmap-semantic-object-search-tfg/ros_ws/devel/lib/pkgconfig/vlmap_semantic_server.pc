@@ -1,0 +1,1 @@
+/ros_ws/devel/.private/vlmap_semantic_server/lib/pkgconfig/vlmap_semantic_server.pc

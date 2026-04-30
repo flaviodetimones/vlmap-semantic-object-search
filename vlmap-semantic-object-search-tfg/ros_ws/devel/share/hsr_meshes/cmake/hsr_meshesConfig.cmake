@@ -1,0 +1,1 @@
+/ros_ws/devel/.private/hsr_meshes/share/hsr_meshes/cmake/hsr_meshesConfig.cmake

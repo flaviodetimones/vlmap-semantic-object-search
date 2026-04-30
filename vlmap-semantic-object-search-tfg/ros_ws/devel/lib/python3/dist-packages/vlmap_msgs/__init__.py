@@ -1,0 +1,1 @@
+/ros_ws/devel/.private/vlmap_msgs/lib/python3/dist-packages/vlmap_msgs/__init__.py

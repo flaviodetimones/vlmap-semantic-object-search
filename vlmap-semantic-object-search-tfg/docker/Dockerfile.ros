@@ -16,6 +16,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     bash-completion \
     build-essential \
     git \
+    mesa-utils \
     nano \
     python3-pip \
     python3-rosdep \
@@ -29,6 +30,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ros-noetic-dwa-local-planner \
     ros-noetic-tf2-ros \
     ros-noetic-tf2-tools \
+    ros-noetic-teleop-twist-keyboard \
     ros-noetic-rviz \
     ros-noetic-cv-bridge \
     ros-noetic-rosbridge-suite \

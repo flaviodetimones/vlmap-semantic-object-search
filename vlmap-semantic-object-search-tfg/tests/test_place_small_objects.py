@@ -145,3 +145,25 @@ def test_select_furniture_no_room_hint_accepts_any_room():
         instances, template_to_cat, "table", None, rooms
     )
     assert len(cands) == 2
+
+
+def test_select_floor_candidates_uses_room_centroids():
+    rooms = {
+        "living room__0": [(0.0, 0.0), (4.0, 0.0), (4.0, 4.0), (0.0, 4.0)],
+        "bedroom__0": [(10.0, 10.0), (14.0, 10.0), (14.0, 14.0), (10.0, 14.0)],
+    }
+    cands = pso._select_floor_candidates("living room", rooms)
+    assert len(cands) == 1
+    placement, room_id = cands[0]
+    assert room_id == "living room__0"
+    assert placement[0] == 2.0
+    assert placement[2] == 2.0
+
+
+def test_select_floor_candidates_without_room_hint_returns_all():
+    rooms = {
+        "a__0": [(0.0, 0.0), (2.0, 0.0), (2.0, 2.0), (0.0, 2.0)],
+        "b__0": [(10.0, 10.0), (12.0, 10.0), (12.0, 12.0), (10.0, 12.0)],
+    }
+    cands = pso._select_floor_candidates(None, rooms)
+    assert len(cands) == 2

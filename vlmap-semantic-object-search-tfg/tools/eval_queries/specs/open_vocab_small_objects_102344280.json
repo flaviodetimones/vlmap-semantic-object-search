@@ -1,0 +1,10 @@
+{
+  "scene_id": 1,
+  "scene_name": "102344280_0",
+  "_comment": "Dining room + kitchen + tv room + bedrooms. Add only objects that do not already appear clearly in the natural scene battery and that have valid HSSD assets.",
+  "placements": [
+    {"object": "bottle", "query_target": "bottle", "furniture": "counter", "room_hint": "kitchen", "count": 1, "tags": ["level3", "needs_surrogate", "open_vocab"]},
+    {"object": "teapot", "query_target": "teapot", "furniture": "table", "room_hint": "dining room", "count": 1, "tags": ["level3", "needs_surrogate", "open_vocab"]},
+    {"object": "bowl", "query_target": "bowl", "furniture": "table", "room_hint": "dining room", "count": 1, "tags": ["level3", "needs_surrogate", "open_vocab"]}
+  ]
+}

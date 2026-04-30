@@ -1,0 +1,1 @@
+/ros_ws/devel/.private/vlmap_bringup/lib/vlmap_bringup/hsr_cmd_vel_bridge.py

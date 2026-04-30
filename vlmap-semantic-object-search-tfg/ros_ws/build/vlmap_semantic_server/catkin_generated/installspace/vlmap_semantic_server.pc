@@ -1,0 +1,8 @@
+prefix=/ros_ws/install
+
+Name: vlmap_semantic_server
+Description: Description of vlmap_semantic_server
+Version: 0.1.0
+Cflags: 
+Libs: -L${prefix}/lib 
+Requires: rospy std_msgs vlmap_msgs

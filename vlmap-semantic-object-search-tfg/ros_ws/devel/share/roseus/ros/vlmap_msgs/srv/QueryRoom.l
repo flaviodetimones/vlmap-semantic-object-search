@@ -1,0 +1,1 @@
+/ros_ws/devel/.private/vlmap_msgs/share/roseus/ros/vlmap_msgs/srv/QueryRoom.l

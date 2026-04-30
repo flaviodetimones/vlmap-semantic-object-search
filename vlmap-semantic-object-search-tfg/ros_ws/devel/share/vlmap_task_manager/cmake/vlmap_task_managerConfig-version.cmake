@@ -1,0 +1,1 @@
+/ros_ws/devel/.private/vlmap_task_manager/share/vlmap_task_manager/cmake/vlmap_task_managerConfig-version.cmake

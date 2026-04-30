@@ -1,0 +1,6 @@
+habitat_ros_bridge
+/ros_ws/devel/.private/habitat_ros_bridge/share/habitat_ros_bridge/cmake/habitat_ros_bridgeConfig-version.cmake /ros_ws/devel/share/habitat_ros_bridge/cmake/habitat_ros_bridgeConfig-version.cmake
+/ros_ws/devel/.private/habitat_ros_bridge/share/habitat_ros_bridge/cmake/habitat_ros_bridgeConfig.cmake /ros_ws/devel/share/habitat_ros_bridge/cmake/habitat_ros_bridgeConfig.cmake
+/ros_ws/devel/.private/habitat_ros_bridge/lib/habitat_ros_bridge/habitat_ros_bridge_node /ros_ws/devel/lib/habitat_ros_bridge/habitat_ros_bridge_node
+/ros_ws/devel/.private/habitat_ros_bridge/lib/python3/dist-packages/habitat_ros_bridge/__init__.py /ros_ws/devel/lib/python3/dist-packages/habitat_ros_bridge/__init__.py
+/ros_ws/devel/.private/habitat_ros_bridge/lib/pkgconfig/habitat_ros_bridge.pc /ros_ws/devel/lib/pkgconfig/habitat_ros_bridge.pc

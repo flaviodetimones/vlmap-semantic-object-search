@@ -1,0 +1,1 @@
+/ros_ws/devel/.private/vlmap_bringup/lib/vlmap_bringup/hsr_pose_scout.py
