@@ -20,6 +20,6 @@ catkin_install_python(PROGRAMS
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
 
-install(DIRECTORY launch rviz config urdf
+install(DIRECTORY launch rviz config urdf worlds
   DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION}
 )
