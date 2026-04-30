@@ -19,7 +19,7 @@ _PROFILES: Dict[str, Dict[str, float]] = {
         "wrist_flex_joint": -1.57,
         "wrist_roll_joint": 0.0,
         "head_pan_joint": 0.0,
-        "head_tilt_joint": 0.18,
+        "head_tilt_joint": -0.42,
     },
     # Compact, visually stable pose for navigation and sensor validation.
     "nav": {

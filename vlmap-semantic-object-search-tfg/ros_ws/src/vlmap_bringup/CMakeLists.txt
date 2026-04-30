@@ -12,6 +12,7 @@ catkin_package(
 catkin_install_python(PROGRAMS
   scripts/hsr_keyboard_teleop.py
   scripts/hsr_passive_joint_state_publisher.py
+  scripts/hsr_pose_scout.py
   scripts/hsr_posture_keeper.py
   scripts/hsr_sensor_visualizer.py
   scripts/hsr_stack_check
