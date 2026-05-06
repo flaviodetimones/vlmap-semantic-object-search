@@ -4,6 +4,32 @@ export OPENAI_KEY="${OPENAI_KEY:-$OPENAI_API_KEY}"
 APP=/workspace/third_party/vlmaps/application
 DATASET=/workspace/third_party/vlmaps/dataset
 
+is_scene_excluded() {
+    local scene_name="$1"
+    case "$DATASET_TYPE:$scene_name" in
+        hssd:108736884_177263634_4)
+            return 0
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
+iter_scene_names() {
+    if [ ! -d "$SCENES_DIR" ]; then
+        return
+    fi
+
+    while IFS= read -r dir; do
+        local scene_name
+        scene_name=$(basename "$dir")
+        if ! is_scene_excluded "$scene_name"; then
+            echo "$scene_name"
+        fi
+    done < <(find "$SCENES_DIR" -mindepth 1 -maxdepth 1 -type d | sort)
+}
+
 run_other_menu() {
     while true; do
         echo ""
@@ -82,10 +108,10 @@ if torch.cuda.is_available():
 print_scene_list() {
     if [ -d "$SCENES_DIR" ]; then
         i=0
-        while IFS= read -r dir; do
-            echo "    scene_id=$i  →  $(basename "$dir")"
+        while IFS= read -r scene_name; do
+            echo "    scene_id=$i  →  $scene_name"
             i=$((i+1))
-        done < <(find "$SCENES_DIR" -mindepth 1 -maxdepth 1 -type d | sort)
+        done < <(iter_scene_names)
         if [ "$i" -eq 0 ]; then
             echo "    (no scene folders found in $SCENES_DIR)"
         fi
@@ -99,7 +125,7 @@ scene_name_from_id() {
     if [ ! -d "$SCENES_DIR" ]; then
         return 1
     fi
-    find "$SCENES_DIR" -mindepth 1 -maxdepth 1 -type d | sort | sed -n "$((scene_id + 1))p" | xargs -r basename
+    iter_scene_names | sed -n "$((scene_id + 1))p"
 }
 
 scene_count() {
@@ -107,7 +133,7 @@ scene_count() {
         echo 0
         return
     fi
-    find "$SCENES_DIR" -mindepth 1 -maxdepth 1 -type d | sort | wc -l
+    iter_scene_names | wc -l
 }
 
 prompt_valid_scene_id() {
@@ -602,9 +628,7 @@ while true; do
                 echo "  │  e) Interactive executor navigation             │"
                 echo "  │  t) Testing / evaluation submenu                │"
                 echo "  │  g) Generate obstacle map image                 │"
-                if [ "$DATASET_TYPE" = "mp3d" ]; then
                 echo "  │  n) Label rooms (LabelMe → room_map)            │"
-                fi
                 echo "  │  b) Back                                        │"
                 echo "  └─────────────────────────────────────────────────┘"
                 echo -n "  Select (default l): "
@@ -701,10 +725,10 @@ while true; do
                         echo "  ─────────────────────────────────────────────────"
                         if [ -d "$SCENES_DIR" ]; then
                             i=0
-                            while IFS= read -r dir; do
-                                echo "    scene_id=$i  →  $(basename "$dir")"
+                            while IFS= read -r scene_name; do
+                                echo "    scene_id=$i  →  $scene_name"
                                 i=$((i+1))
-                            done < <(find "$SCENES_DIR" -mindepth 1 -maxdepth 1 -type d | sort)
+                            done < <(iter_scene_names)
                             if [ "$i" -eq 0 ]; then
                                 echo "    (no scene folders found in $SCENES_DIR)"
                             fi
@@ -795,10 +819,10 @@ while true; do
                         echo "  ─────────────────────────────────────────────────"
                         if [ -d "$SCENES_DIR" ]; then
                             i=0
-                            while IFS= read -r dir; do
-                                echo "    scene_id=$i  →  $(basename "$dir")"
+                            while IFS= read -r scene_name; do
+                                echo "    scene_id=$i  →  $scene_name"
                                 i=$((i+1))
-                            done < <(find "$SCENES_DIR" -mindepth 1 -maxdepth 1 -type d | sort)
+                            done < <(iter_scene_names)
                         else
                             echo "    (data directory not found)"
                         fi
@@ -818,10 +842,10 @@ while true; do
                         echo "  ─────────────────────────────────────────────────"
                         if [ -d "$SCENES_DIR" ]; then
                             i=0
-                            while IFS= read -r dir; do
-                                echo "    scene_id=$i  →  $(basename "$dir")"
+                            while IFS= read -r scene_name; do
+                                echo "    scene_id=$i  →  $scene_name"
                                 i=$((i+1))
-                            done < <(find "$SCENES_DIR" -mindepth 1 -maxdepth 1 -type d | sort)
+                            done < <(iter_scene_names)
                         else
                             echo "    (data directory not found)"
                         fi
@@ -845,10 +869,10 @@ while true; do
                         echo "  ─────────────────────────────────────────────────"
                         if [ -d "$SCENES_DIR" ]; then
                             i=0
-                            while IFS= read -r dir; do
-                                echo "    scene_id=$i  →  $(basename "$dir")"
+                            while IFS= read -r scene_name; do
+                                echo "    scene_id=$i  →  $scene_name"
                                 i=$((i+1))
-                            done < <(find "$SCENES_DIR" -mindepth 1 -maxdepth 1 -type d | sort)
+                            done < <(iter_scene_names)
                         else
                             echo "    (data directory not found)"
                         fi
@@ -875,10 +899,10 @@ while true; do
                         echo "  ─────────────────────────────────────────────────"
                         if [ -d "$SCENES_DIR" ]; then
                             i=0
-                            while IFS= read -r dir; do
-                                echo "    scene_id=$i  →  $(basename "$dir")"
+                            while IFS= read -r scene_name; do
+                                echo "    scene_id=$i  →  $scene_name"
                                 i=$((i+1))
-                            done < <(find "$SCENES_DIR" -mindepth 1 -maxdepth 1 -type d | sort)
+                            done < <(iter_scene_names)
                         else
                             echo "    (data directory not found)"
                         fi
@@ -907,12 +931,13 @@ while true; do
                         echo "  ─────────────────────────────────────────────────"
                         if [ -d "$SCENES_DIR" ]; then
                             i=0
-                            while IFS= read -r dir; do
+                            while IFS= read -r scene_name; do
+                                dir="$SCENES_DIR/$scene_name"
                                 HAS_MAP=""
                                 [ -f "$dir/obstacle_map.png" ] && HAS_MAP=" [map ready]"
-                                echo "    scene_id=$i  →  $(basename "$dir")$HAS_MAP"
+                                echo "    scene_id=$i  →  $scene_name$HAS_MAP"
                                 i=$((i+1))
-                            done < <(find "$SCENES_DIR" -mindepth 1 -maxdepth 1 -type d | sort)
+                            done < <(iter_scene_names)
                         fi
                         echo ""
                         if ! prompt_valid_scene_id "scene_id" 0; then
@@ -923,80 +948,102 @@ while true; do
                         echo "► Generating obstacle map images for scene $scene  [$DS_LABEL]..."
                         cd /workspace/third_party/vlmaps
                         python "$APP/generate_obstacle_map_png.py" \
-                            data_paths="$DATA_PATHS" scene_id="$scene"
+                            data_paths="$DATA_PATHS" scene_id="$scene" $NAV_EXTRA
                         ;;
                     n|N)
-                        if [ "$DATASET_TYPE" = "hssd" ]; then
-                            echo "  Room labeling not needed for HSSD — annotations are automatic"
-                            echo "  (read from semantics/scenes/<id>.semantic_config.json)."
-                        else
                         echo ""
-                        echo "  ╔═══════════════════════════════════════════════════╗"
-                        echo "  ║           Room Labeling Workflow                  ║"
-                        echo "  ╠═══════════════════════════════════════════════════╣"
-                        echo "  ║  Step 1: Generate obstacle map (option g)         ║"
-                        echo "  ║  Step 2: LabelMe opens → draw room polygons       ║"
-                        echo "  ║  Step 3: Save in LabelMe (Ctrl+S), then close     ║"
-                        echo "  ║  Step 4: Automatic conversion to room_map         ║"
-                        echo "  ╠═══════════════════════════════════════════════════╣"
-                        echo "  ║  TIPS:                                            ║"
-                        echo "  ║  • Use Polygon tool (not Rectangle)               ║"
-                        echo "  ║  • Draw LARGE polygons covering the whole room    ║"
-                        echo "  ║  • Labels: living_room  bedroom  kitchen          ║"
-                        echo "  ║    bathroom  office  hallway  dining_room         ║"
-                        echo "  ║  • Multiple rooms same type: bedroom_1 bedroom_2  ║"
-                        echo "  ╚═══════════════════════════════════════════════════╝"
+                        echo "  ╔══════════════════════════════════════════════════════╗"
+                        echo "  ║        Room labeling workflow (LabelMe)             ║"
+                        echo "  ╠══════════════════════════════════════════════════════╣"
+                        echo "  ║  Esta opción hace el flujo completo:                ║"
+                        echo "  ║  preparar -> abrir LabelMe -> convertir a room_map  ║"
+                        echo "  ║  Tú solo dibujas y guardas.                         ║"
+                        echo "  ╚══════════════════════════════════════════════════════╝"
                         echo ""
-                        echo "  Available scenes:"
+                        echo "  Escenas disponibles [$DS_LABEL]:"
                         echo "  ─────────────────────────────────────────────────"
                         if [ -d "$SCENES_DIR" ]; then
                             i=0
-                            while IFS= read -r dir; do
+                            while IFS= read -r scene_name; do
+                                dir="$SCENES_DIR/$scene_name"
                                 HAS_MAP=""
-                                ( [ -f "$dir/topdown_labeled.png" ] || [ -f "$dir/obstacle_map.png" ] ) && HAS_MAP=" [map ready]"
+                                ( [ -f "$dir/topdown_labeled.png" ] || [ -f "$dir/obstacle_map.png" ] ) && HAS_MAP=" [mapa listo]"
                                 HAS_ROOMS=""
-                                [ -f "$dir/room_map/room_map.npy" ] && HAS_ROOMS=" [rooms labeled]"
-                                echo "    scene_id=$i  →  $(basename "$dir")$HAS_MAP$HAS_ROOMS"
+                                [ -f "$dir/room_map/room_map.npy" ] && HAS_ROOMS=" [room_map manual]"
+                                echo "    scene_id=$i  →  $scene_name$HAS_MAP$HAS_ROOMS"
                                 i=$((i+1))
-                            done < <(find "$SCENES_DIR" -mindepth 1 -maxdepth 1 -type d | sort)
+                            done < <(iter_scene_names)
                         fi
                         echo ""
-                        echo -n "  scene_id (default 0): "
-                        read -r scene
-                        scene=${scene:-0}
-                        SCENE_DIR=$(find "$SCENES_DIR" -mindepth 1 -maxdepth 1 -type d | sort | sed -n "$((scene+1))p")
-                        if [ -z "$SCENE_DIR" ]; then
-                            echo "  Scene not found."
-                        else
-                            MAP_IMG="$SCENE_DIR/topdown_labeled.png"
-                            [ ! -f "$MAP_IMG" ] && MAP_IMG="$SCENE_DIR/obstacle_map.png"
-                            if [ ! -f "$MAP_IMG" ]; then
-                                echo "  Map image not found. Run option 'g' first."
-                            else
-                                LABEL_JSON="$SCENE_DIR/room_map/room_labels.json"
-                                mkdir -p "$SCENE_DIR/room_map"
-                                echo ""
-                                echo "► Opening LabelMe... (draw polygons, Ctrl+S to save, then close)"
-                                echo "  Image: $MAP_IMG"
-                                echo "  Output JSON: $LABEL_JSON"
-                                echo ""
-                                LD_PRELOAD=/opt/conda/envs/tfg/lib/libstdc++.so.6 \
-                                    labelme "$MAP_IMG" \
-                                    --output "$LABEL_JSON" \
-                                    --autosave \
-                                    --nodata
-                                if [ -f "$LABEL_JSON" ]; then
-                                    echo ""
-                                    echo "► Converting LabelMe JSON → room_map..."
-                                    cd /workspace/third_party/vlmaps
-                                    python application/labelme_to_room_map.py \
-                                        --json "$LABEL_JSON" \
-                                        --scene "$SCENE_DIR"
-                                else
-                                    echo "  No JSON saved (LabelMe closed without saving)."
-                                fi
-                            fi
+                        if ! prompt_valid_scene_id "scene_id" 0; then
+                            continue
                         fi
+                        scene="$SELECTED_SCENE_ID"
+                        SCENE_NAME=$(scene_name_from_id "$scene")
+                        if [ -z "$SCENE_NAME" ]; then
+                            echo "  Escena no encontrada."
+                            continue
+                        fi
+                        SCENE_DIR="$SCENES_DIR/$SCENE_NAME"
+                        ANNO_DIR="/workspace/annotations/room_labels/$DATASET_TYPE/$SCENE_NAME"
+                        HOST_ANNO_DIR="/home/mario/tfg/vlmap-semantic-object-search-tfg/annotations/room_labels/$DATASET_TYPE/$SCENE_NAME"
+                        MAP_IMG="$ANNO_DIR/topdown_labeled.png"
+                        LABEL_JSON="$ANNO_DIR/room_labels.json"
+                        ALT_LABEL_JSON="$ANNO_DIR/topdown_labeled.json"
+                        echo ""
+                        echo "  Escena       : $SCENE_NAME"
+                        echo "  Anotaciones  : $ANNO_DIR"
+                        echo "  JSON esperado: $LABEL_JSON"
+                        echo "  JSON alterno : $ALT_LABEL_JSON"
+                        echo ""
+                        echo "► Preparando assets para LabelMe..."
+                        if [ "$DATASET_TYPE" = "hssd" ]; then
+                            python /workspace/tools/prepare_room_labelme.py \
+                                --dataset-type "$DATASET_TYPE" \
+                                --data-paths "$DATA_PATHS" \
+                                --scene-id "$scene" \
+                                --scene-dataset-config-file "$HSSD_CFG" \
+                                --regenerate
+                        else
+                            python /workspace/tools/prepare_room_labelme.py \
+                                --dataset-type "$DATASET_TYPE" \
+                                --data-paths "$DATA_PATHS" \
+                                --scene-id "$scene" \
+                                --regenerate
+                        fi
+                        echo ""
+                        echo "► Asegurando compatibilidad de LabelMe con NumPy..."
+                        python /workspace/tools/ensure_labelme_compat.py
+                        echo ""
+                        if [ ! -f "$MAP_IMG" ]; then
+                            echo "  No se ha podido preparar la imagen de anotación."
+                            continue
+                        fi
+                        echo "► Abriendo LabelMe dentro del contenedor..."
+                        echo "  Dibuja los polígonos, guarda y cierra LabelMe."
+                        echo "  Imagen : $MAP_IMG"
+                        echo "  Salida : $LABEL_JSON"
+                        QT_PLUGIN_PATH=/opt/conda/envs/tfg/lib/python3.9/site-packages/PyQt5/Qt5/plugins \
+                        QT_QPA_PLATFORM_PLUGIN_PATH=/opt/conda/envs/tfg/lib/python3.9/site-packages/PyQt5/Qt5/plugins/platforms \
+                        QT_QPA_PLATFORM=xcb \
+                        LD_PRELOAD=/opt/conda/envs/tfg/lib/libstdc++.so.6 \
+                            labelme "$MAP_IMG" \
+                            --output "$LABEL_JSON" \
+                            --autosave \
+                            --nodata
+                        if [ -f "$LABEL_JSON" ] || [ -f "$ALT_LABEL_JSON" ]; then
+                            echo ""
+                            echo "► Convirtiendo anotación manual a room_map..."
+                            python /workspace/tools/convert_room_labelme.py \
+                                --dataset-type "$DATASET_TYPE" \
+                                --scene-id "$scene"
+                        else
+                            echo ""
+                            echo "  No se encontró JSON guardado; se omite la conversión."
+                            echo "  Si la ventana no se abrió bien dentro del contenedor,"
+                            echo "  usa este comando en el host y luego vuelve a pulsar 'n':"
+                            echo ""
+                            echo "  labelme \"$HOST_ANNO_DIR/topdown_labeled.png\" -O \"$HOST_ANNO_DIR/room_labels.json\" --autosave --nodata"
                         fi
                         ;;
                     b|B)

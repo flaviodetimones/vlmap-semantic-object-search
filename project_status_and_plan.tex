@@ -7,10 +7,13 @@
 \usepackage{hyperref}
 \usepackage{enumitem}
 \usepackage{booktabs}
+\usepackage{multirow}
 \usepackage{array}
 \usepackage{xcolor}
+\usepackage{graphicx}
 \usepackage{pgfplots}
 \pgfplotsset{compat=1.18}
+\usetikzlibrary{arrows.meta,positioning,fit,shapes.multipart}
 \usepackage{longtable}
 \usepackage{amsmath}
 \usepackage{amssymb}
@@ -468,6 +471,55 @@ que operará la política room-aware. Su flujo es:
   \item \textbf{Retry}. Si falla, se prueba el siguiente candidato (hasta~8);
         si se agota la categoría, se pasa a la siguiente.
 \end{enumerate}
+
+\subsection{Arquitectura por capas de \texttt{tfg-sim}}
+
+La organización actual del sistema en \texttt{tfg-sim} puede resumirse como
+una arquitectura de tres capas. La idea clave es que la semántica y la
+estrategia viven por encima del backend de simulación, de modo que la futura
+migración a ROS/HSR sólo tenga que sustituir la capa inferior sin reescribir la
+lógica de decisión.
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[
+  font=\small,
+  layer/.style={
+    draw,
+    rounded corners=4pt,
+    very thick,
+    align=center,
+    text width=8.4cm,
+    minimum height=1.55cm,
+    inner sep=6pt
+  },
+  side/.style={font=\footnotesize\itshape, gray, anchor=west},
+  flow/.style={-{Latex[length=3mm]}, thick, gray!70!black}
+]
+  \node[layer, fill=blue!10, draw=blue!55!black] (l3) at (0,0)
+    {\textbf{Decisión \& estrategia} \\[1pt]
+     \footnotesize política room-aware $\cdot$ priors $\cdot$ LLM};
+  \node[layer, fill=green!10, draw=green!50!black, below=0.55cm of l3] (l2)
+    {\textbf{Percepción semántica} \\[1pt]
+     \footnotesize VLMap+CLIP $\cdot$ heatmap $\cdot$ candidatos};
+  \node[layer, fill=orange!12, draw=orange!60!black, below=0.55cm of l2] (l1)
+    {\textbf{Ejecución encarnada} \\[1pt]
+     \footnotesize Habitat-Sim $\cdot$ A* clearance-aware $\cdot$ YOLOE};
+
+  \draw[flow] ([xshift=-1cm]l3.south) -- node[left, font=\footnotesize]
+    {decisiones} ([xshift=-1cm]l2.north);
+  \draw[flow] ([xshift=-1cm]l2.south) -- node[left, font=\footnotesize]
+    {goals 2D} ([xshift=-1cm]l1.north);
+  \draw[flow] ([xshift=1cm]l1.north) -- node[right, font=\footnotesize]
+    {observaciones} ([xshift=1cm]l2.south);
+  \draw[flow] ([xshift=1cm]l2.north) -- node[right, font=\footnotesize]
+    {evidencia} ([xshift=1cm]l3.south);
+\end{tikzpicture}
+\caption{Arquitectura por capas de \texttt{tfg-sim}. La capa inferior es la
+única que cambia al migrar a ROS/HSR; la semántica y la estrategia se
+preservan.}
+\label{fig:tfg-sim-three-layer}
+\end{figure}
 
 \subsection{Flujo completo del heatmap}
 \label{sec:heatmap-flow}
@@ -1181,6 +1233,193 @@ orquestación?»}. El trabajo restante ya no es infraestructura, sino lanzar las
 baterías sobre escenas HSSD representativas, revisar salidas y comentar
 resultados.
 
+\subsection*{Protocolo de evaluación finalmente adoptado}
+\label{sec:eval-protocol}
+
+La batería 2$\times$2 inicial se descartó por ser muy costosa de lanzar y
+porque mezclaba dos preguntas distintas. Se reemplazó por un \textbf{protocolo
+secuencial en dos etapas} que aísla cada pregunta y reduce el tiempo de
+cómputo manteniendo la potestad de responder ambas:
+
+\begin{enumerate}
+  \item \textbf{Etapa~1 --- selección del heatmap} \emph{(offline, sin
+        navegación)}. Sobre 500~queries por escena se compara el heatmap
+        \texttt{raw} (CLIP $\rightarrow$ proyección 2D $\rightarrow$
+        \emph{decay}) con el heatmap \texttt{postprocessed}
+        (\texttt{postprocess\_heatmap()}). El criterio de victoria es
+        agregado: \emph{Hit@1}, \emph{Hit@5}, \emph{IoU top-mass-50},
+        masa proyectada dentro de la habitación esperada y proporción de
+        masa fuera. La salida fija el modo a usar en la siguiente etapa.
+  \item \textbf{Etapa~2 --- selección del orquestador} \emph{(online, con
+        Habitat-Sim)}. Sobre 100~queries por escena, con el heatmap fijado
+        al ganador de la Etapa~1, se compara el orquestador \emph{baseline}
+        (\texttt{Ob\_Hp}) con el \emph{executor} de acciones tipadas
+        (\texttt{Oe\_Hp}). Aquí las métricas son de navegación: SR, CFR,
+        Wrong Visits, Pose Updates y Early Stop Rate.
+\end{enumerate}
+
+Esta separación permite que la decisión sobre el heatmap se tome con un
+volumen mucho mayor de queries (500 vs.\ 100) y a coste cero de simulación,
+mientras que la simulación se reserva para el contraste de orquestador, que
+es lo que realmente exige ejecutarse en Habitat.
+
+\subsubsection*{Etapa~1: heatmap \texttt{raw} vs.\ \texttt{postprocessed}}
+
+Lote de referencia: \texttt{results/heatmap\_phase/20260424\_153612/}
+(500 queries $\times$ 3 escenas HSSD). La Tabla~\ref{tab:heatmap-stage}
+recoge los valores por escena y la Figura~\ref{fig:heatmap-stage-quality}
+muestra las cuatro métricas clave por escena.
+
+\begin{table}[htbp]
+\centering
+\small
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{lrrrrrrrr}
+\toprule
+\multirow{2}{*}{\textbf{Escena}} & \multirow{2}{*}{\textbf{n}} &
+\multicolumn{2}{c}{\textbf{Hit@1}} &
+\multicolumn{2}{c}{\textbf{Mass in expected}} &
+\multicolumn{2}{c}{\textbf{Wrong-room mass}} \\
+\cmidrule(lr){3-4} \cmidrule(lr){5-6} \cmidrule(lr){7-8}
+ & & raw & postp. & raw & postp. & raw & postp. \\
+\midrule
+102344193\_0          & 500 & 0.430 & \textbf{0.430} & 0.374 & \textbf{0.400} & \textbf{0.564} & 0.589 \\
+102344280\_0          & 500 & 0.316 & \textbf{0.414} & 0.281 & \textbf{0.310} & 0.577 & \textbf{0.551} \\
+108736884\_177263634\_4 & 500 & 0.326 & \textbf{0.352} & 0.276 & \textbf{0.298} & 0.611 & \textbf{0.604} \\
+\bottomrule
+\end{tabular}
+\caption{Etapa~1: comparativa offline del heatmap \texttt{raw} frente al
+\texttt{postprocessed} sobre 500 queries por escena. \emph{Hit@1} mide si la
+celda de máxima masa cae dentro de la habitación esperada; \emph{mass in
+expected} es la fracción de masa total proyectada dentro de las habitaciones
+correctas; \emph{wrong-room mass} es la masa proyectada fuera (cuanto menor,
+mejor). Negrita = mejor entre los dos modos.}
+\label{tab:heatmap-stage}
+\end{table}
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.49\linewidth]{vlmap-semantic-object-search-tfg/results/heatmap_phase/20260424_153612/plots/bar_hitat_1.png}\hfill
+\includegraphics[width=0.49\linewidth]{vlmap-semantic-object-search-tfg/results/heatmap_phase/20260424_153612/plots/bar_mass_in_expected_ratio.png}\\[6pt]
+\includegraphics[width=0.49\linewidth]{vlmap-semantic-object-search-tfg/results/heatmap_phase/20260424_153612/plots/bar_iou_topmass50.png}\hfill
+\includegraphics[width=0.49\linewidth]{vlmap-semantic-object-search-tfg/results/heatmap_phase/20260424_153612/plots/bar_wrong_room_mass_ratio.png}
+\caption{Etapa~1: calidad semántica del heatmap por escena. \emph{Hit@1}
+(arriba-izq.), \emph{mass in expected room} (arriba-der.), \emph{IoU top-mass-50}
+(abajo-izq.) y \emph{wrong-room mass} (abajo-der.). Cada barra compara el modo
+\texttt{raw} con el modo \texttt{postprocessed}; el postproceso gana en
+\emph{Hit@1} y \emph{mass in expected} en las tres escenas.}
+\label{fig:heatmap-stage-quality}
+\end{figure}
+
+\paragraph{Análisis Etapa~1.} El postprocesado mantiene o mejora \emph{Hit@1}
+y \emph{mass in expected} en las tres escenas, mejora \emph{wrong-room mass}
+en dos de tres, y empata o cae ligeramente en \emph{IoU top-mass-50} (el
+postproceso compacta los componentes y reduce la masa total, lo que penaliza
+una métrica de solapamiento de masa). En agregado el efecto neto es positivo,
+con la mejora más clara en la escena 102344280\_0 (Hit@1 0.32~$\rightarrow$~0.41,
+$+9.8$~puntos). \textbf{Decisión}: se fija \texttt{heatmap\_mode = postprocessed}
+para la Etapa~2.
+
+\subsubsection*{Etapa~2: orquestador \texttt{Ob\_Hp} vs.\ \texttt{Oe\_Hp}}
+
+Lote de referencia: \texttt{results/orchestrator\_phase/20260424\_154155/}
+(100 queries $\times$ 3 escenas, heatmap fijado a \texttt{postprocessed}).
+\texttt{Ob\_Hp} es el orquestador \emph{inline} actual; \texttt{Oe\_Hp} es el
+nuevo executor que pasa por \texttt{choose\_next\_action() $\rightarrow$
+execute\_action()} sobre las mismas primitivas. Las
+Tablas~\ref{tab:orch-stage-cross} y~\ref{tab:orch-stage-perscene} resumen los
+resultados; las Figuras \ref{fig:orch-sr-cfr} y \ref{fig:orch-costs} muestran
+las métricas en formato gráfico por escena.
+
+\begin{table}[htbp]
+\centering
+\small
+\begin{tabular}{lrrrrr}
+\toprule
+\textbf{Método} & \textbf{SR} & \textbf{CFR} & \textbf{CT2R} & \textbf{Wrong Visits} & \textbf{Pose Updates} \\
+\midrule
+\texttt{Ob\_Hp} (baseline) & \textbf{0.667 $\pm$ 0.18} & \textbf{0.137 $\pm$ 0.07} & \textbf{0.290 $\pm$ 0.07} & \textbf{0.16 $\pm$ 0.12} & \textbf{382.4 $\pm$ 19.8} \\
+\texttt{Oe\_Hp} (executor) & 0.617 $\pm$ 0.14 & 0.177 $\pm$ 0.07 & 0.327 $\pm$ 0.07 & 1.18 $\pm$ 0.44 & 431.6 $\pm$ 35.9 \\
+\midrule
+$\Delta$ (Oe$-$Ob) & $-0.050$ & $+0.040$ & $+0.037$ & $+1.02$ & $+49.1$ \\
+\bottomrule
+\end{tabular}
+\caption{Etapa~2: agregado cruzado de las 3 escenas (300 queries). SR =
+Success Rate, CFR = Completion Failure Rate, CT2R = Cost to Result. Negrita
+= mejor de los dos métodos. El baseline gana en las cinco columnas.}
+\label{tab:orch-stage-cross}
+\end{table}
+
+\begin{table}[htbp]
+\centering
+\small
+\setlength{\tabcolsep}{5pt}
+\begin{tabular}{llrrrrr}
+\toprule
+\textbf{Escena} & \textbf{Método} & \textbf{SR} & \textbf{CFR} & \textbf{Wrong Visits} & \textbf{Pose Updates} & \textbf{Early Stop} \\
+\midrule
+\multirow{2}{*}{102344193\_0}
+ & \texttt{Ob\_Hp} & \textbf{0.92} & 0.24 & \textbf{0.00} & \textbf{404.0} & \textbf{0.21} \\
+ & \texttt{Oe\_Hp} & 0.81          & \textbf{0.27} & 0.56          & 381.2          & 0.04 \\
+\midrule
+\multirow{2}{*}{102344280\_0}
+ & \texttt{Ob\_Hp} & 0.50 & \textbf{0.09} & \textbf{0.28} & \textbf{387.2} & \textbf{0.02} \\
+ & \texttt{Oe\_Hp} & 0.50 & 0.10          & 1.55          & 451.4          & 0.01 \\
+\midrule
+\multirow{2}{*}{108736884\_177263634\_4}
+ & \texttt{Ob\_Hp} & \textbf{0.58} & \textbf{0.08} & \textbf{0.20} & \textbf{356.2} & \textbf{0.07} \\
+ & \texttt{Oe\_Hp} & 0.54          & 0.16          & 1.43          & 462.2          & 0.03 \\
+\bottomrule
+\end{tabular}
+\caption{Etapa~2 desglosada por escena. Negrita = mejor de los dos métodos en
+esa escena. El baseline gana o empata en SR en las tres escenas, y siempre
+gana en \emph{Wrong Visits} y \emph{Pose Updates}.}
+\label{tab:orch-stage-perscene}
+\end{table}
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.49\linewidth]{vlmap-semantic-object-search-tfg/results/orchestrator_phase/20260424_154155/plots/sr.png}\hfill
+\includegraphics[width=0.49\linewidth]{vlmap-semantic-object-search-tfg/results/orchestrator_phase/20260424_154155/plots/cfr.png}
+\caption{Etapa~2: Success Rate (izq.) y Completion Failure Rate (der.) por
+escena para \texttt{Ob\_Hp} y \texttt{Oe\_Hp}.}
+\label{fig:orch-sr-cfr}
+\end{figure}
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.49\linewidth]{vlmap-semantic-object-search-tfg/results/orchestrator_phase/20260424_154155/plots/wrong_visits.png}\hfill
+\includegraphics[width=0.49\linewidth]{vlmap-semantic-object-search-tfg/results/orchestrator_phase/20260424_154155/plots/mean_pose_updates.png}
+\caption{Etapa~2: \emph{Wrong Visits} (izq.) y \emph{Mean Pose Updates}
+(der.) por escena. La diferencia más visible no está en el éxito sino en el
+coste: el executor inspecciona muchos más candidatos incorrectos antes de
+cerrar la query.}
+\label{fig:orch-costs}
+\end{figure}
+
+\paragraph{Análisis Etapa~2.} El baseline \texttt{Ob\_Hp} gana en SR cruzado
+($0.667$ vs.\ $0.617$, $\Delta=-5$~puntos) y en CFR ($0.137$ vs.\ $0.177$). La
+diferencia más relevante no es el SR sino el coste: el executor genera
+$\sim$7$\times$ más \emph{Wrong Visits} ($1.18$ vs.\ $0.16$) y un 13\,\%
+más de \emph{Pose Updates} ($432$ vs.\ $382$). Por escena, el baseline gana
+limpiamente en sc1 ($0.92$ vs.\ $0.81$) y sc3 ($0.58$ vs.\ $0.54$), y empata
+en sc2 ($0.50$/$0.50$). Por tipo de query, el executor sí mejora ligeramente
+en \emph{room\_object} en sc2 ($0.43$ vs.\ $0.37$), donde la decisión tipada
+explícita ayuda a aprovechar el \emph{room hint}; en \emph{object} puro
+pierde en las tres escenas. \textbf{Decisión}: el executor se mantiene en el
+repositorio para iterar sobre el \emph{action vocabulary}, pero el orquestador
+de referencia para el resto del proyecto sigue siendo \texttt{Ob\_Hp}, con la
+salvedad de explorar el \emph{action vocabulary} para tareas explícitamente
+\emph{room-guided}.
+
+\paragraph{Lo que estas dos etapas dejan asentado.}
+(i)~El postproceso del heatmap es la elección por defecto; (ii)~el cuello de
+botella ya no es el modo de heatmap sino la calidad de la política de
+inspección dentro de la habitación; (iii)~el executor sólo recupera al
+baseline en escenarios con \emph{room hint} explícito, lo que indica que el
+camino para que valga la pena pasa por enriquecer el \emph{action vocabulary}
+y conectarle el LLM estratégico (Fase~G), no por reescribir más primitivas.
+
 \subsection*{Calibración del umbral de confianza de YOLOE}
 \label{sec:yoloe-thresh}
 
@@ -1321,6 +1560,68 @@ robot real:
 Esta extensión no forma parte del roadmap inmediato. Su viabilidad depende
 de que la capa de razonamiento funcione correctamente en simulación y de la
 disponibilidad del robot HSR en el laboratorio V4R del TU Wien.
+
+\subsection*{Esquema futuro de doble contenedor}
+
+La evolución prevista del proyecto no consiste en ``mover todo a ROS'', sino en
+mantener dos contenedores con responsabilidades nítidas. El contenedor
+\texttt{tfg-sim} seguirá siendo la referencia para HSSD/Habitat, datasets,
+evaluación y razonamiento semántico; \texttt{tfg-ros} absorberá ROS\,1 Noetic,
+Gazebo, RViz y la interfaz hacia HSR-sim o el robot físico.
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[
+  font=\small,
+  container/.style={
+    draw,
+    rounded corners=5pt,
+    very thick,
+    minimum width=6.4cm,
+    minimum height=6.0cm,
+    inner sep=4pt
+  },
+  module/.style={
+    draw,
+    rounded corners=2pt,
+    fill=white,
+    align=center,
+    text width=5.4cm,
+    minimum height=0.65cm,
+    font=\footnotesize
+  },
+  ctitle/.style={font=\bfseries\large, anchor=north},
+  flow/.style={-{Latex[length=3mm]}, thick, gray!70!black}
+]
+  % --- tfg-sim ---
+  \node[container, fill=blue!8, draw=blue!55!black] (sim) at (-3.6,0) {};
+  \node[ctitle] at (sim.north) [yshift=-0.25cm] {\texttt{tfg-sim}};
+  \node[module, draw=blue!50!black] (s1) at (-3.6, 1.85) {VLMap + CLIP};
+  \node[module, draw=blue!50!black, below=0.20cm of s1] (s2) {Heatmap (postproc)};
+  \node[module, draw=blue!50!black, below=0.20cm of s2] (s3) {Room provider HSSD};
+  \node[module, draw=blue!50!black, below=0.20cm of s3] (s4) {Política room-aware};
+  \node[module, draw=blue!50!black, below=0.20cm of s4] (s5) {Eval \& métricas};
+
+  % --- tfg-ros ---
+  \node[container, fill=green!8, draw=green!50!black] (ros) at (3.6,0) {};
+  \node[ctitle] at (ros.north) [yshift=-0.25cm] {\texttt{tfg-ros}};
+  \node[module, draw=green!50!black] (r1) at (3.6, 1.85) {ROS\,1 Noetic};
+  \node[module, draw=green!50!black, below=0.20cm of r1] (r2) {Gazebo + RViz};
+  \node[module, draw=green!50!black, below=0.20cm of r2] (r3) {\texttt{move\_base} + costmaps};
+  \node[module, draw=green!50!black, below=0.20cm of r3] (r4) {HSR (sim/real)};
+  \node[module, draw=green!50!black, below=0.20cm of r4] (r5) {Bridge sensores};
+
+  % --- bridge between containers ---
+  \draw[flow] (sim.east|-s2) -- node[above, font=\footnotesize]
+    {goals semánticos} (ros.west|-r3);
+  \draw[flow] (ros.west|-r5) -- node[below, font=\footnotesize]
+    {odom $\cdot$ RGBD} (sim.east|-s4);
+\end{tikzpicture}
+\caption{Arquitectura objetivo de doble contenedor. \texttt{tfg-sim} conserva
+la pila semántica completa; \texttt{tfg-ros} se encarga de la ejecución sobre
+HSR (simulado o físico). El acoplamiento se reduce a goals 2D y observaciones.}
+\label{fig:dual-container-architecture}
+\end{figure}
 
 % =============================================================================
 \section{Diario de desarrollo}
@@ -2539,6 +2840,102 @@ disponibilidad del robot HSR en el laboratorio V4R del TU Wien.
         world} Gazebo con habitaciones anotadas mediante centroides + Voronoi.
         Manipulación, MoveIt, brazo y grasping se posponen hasta que navegación
         y percepción sean estables.
+\end{enumerate}
+
+\subsection*{4 de mayo de 2026 --- Consolidación del backend ROS/HSR y aceleración gráfica}
+
+\begin{enumerate}
+  \item \textbf{HSR oficial como camino principal en Gazebo}: el frente ROS deja
+        de apoyarse en el robot \emph{proxy} como referencia de uso diario. Se
+        estabiliza el arranque del Toyota HSR oficial en mundos simples
+        (\texttt{hsr\_gazebo\_walls.launch}, \texttt{hsr\_gazebo\_simple.launch}
+        y variantes indoor), manteniendo \texttt{tfg-sim} intacto como backend
+        Habitat/HSSD del TFG.
+  \item \textbf{Sensores visibles en RViz}: queda operativo un panel RViz capaz
+        de mostrar \texttt{RobotModel}, \texttt{TF}, \texttt{LaserScan},
+        RGB-D, depth, nube de puntos y marcadores auxiliares. Esto convierte la
+        validación del HSR en una inspección visual reproducible, sin depender
+        sólo de logs o topics aislados.
+  \item \textbf{Teleoperación estándar ROS}: se sustituye el teleop casero por
+        \texttt{teleop\_twist\_keyboard}, remapeado a
+        \texttt{/hsrb/command\_velocity}. Con ello la teleoperación pasa a usar
+        una herramienta estándar del ecosistema ROS\,1 y deja de depender de un
+        script ad hoc del proyecto.
+  \item \textbf{Diagnóstico y fix de rendimiento gráfico en \texttt{tfg-ros}}:
+        el contenedor ROS estaba renderizando Gazebo con
+        \texttt{Mesa llvmpipe} (software rendering por CPU). Se habilita acceso
+        NVIDIA en \texttt{docker-compose.yml} para \texttt{tfg-ros}, con
+        capacidades gráficas adecuadas, y se verifica que tanto Gazebo como
+        OpenGL pasan a usar la GPU NVIDIA real. El impacto práctico es que
+        Gazebo GUI y RViz dejan de estar penalizados por rasterización software.
+  \item \textbf{Escenarios mínimos para validación}: además de los mundos
+        internos de Gazebo, se añade un mundo mínimo con paredes
+        (\texttt{minimal\_walls.world}) para depurar navegación, sensores y
+        render en el caso más simple posible. Esto da un banco estable para
+        comprobar cámara, lidar, odometría y teleop antes de saltar a mundos más
+        complejos.
+  \item \textbf{Estado al cierre del día}: la arquitectura queda ya dividida en
+        dos caminos claros. \texttt{tfg-sim} conserva la lógica semántica,
+        HSSD, métricas y evaluación; \texttt{tfg-ros} dispone de Gazebo, RViz,
+        HSR oficial, teleop estándar y aceleración GPU funcional. El siguiente
+        paso ya no es infraestructura básica, sino seguir refinando la conexión
+        entre ambos contenedores y el uso del backend ROS como ejecutor de goals
+        semánticos.
+\end{enumerate}
+
+\subsection*{6 de mayo de 2026 --- Regiones LabelMe y exploración activa de habitaciones en Habitat/HSSD}
+
+\begin{enumerate}
+  \item \textbf{Regiones manuales como fuente prioritaria}: el flujo HSSD acepta
+        ahora mapas de habitación creados con LabelMe. Si existe
+        \texttt{room\_map/} para una escena, \texttt{LabelMeRoomProvider} se
+        usa por delante de las regiones nativas de HSSD. Esto permite definir
+        habitaciones como zonas navegables reales, no sólo como centroides o
+        polígonos semánticos imperfectos.
+  \item \textbf{Escenas preparadas}: las escenas \texttt{102344193\_0} y
+        \texttt{102344280\_0} ya tienen regiones LabelMe convertidas y
+        cargables por \texttt{interactive\_object\_nav.py}. La escena
+        \texttt{108736884\_177263634\_4} se retira del menú HSSD para evitar
+        confusión con la variante \texttt{108736884\_177263634\_0}.
+  \item \textbf{Menos escaneos redundantes}: se añade memoria de zonas de
+        escaneo por episodio. Si el robot vuelve a una posición situada a menos
+        de \texttt{VLMAPS\_SCAN\_DEDUP\_RADIUS\_M} metros de una zona ya
+        escaneada, se evita repetir el barrido local. El valor por defecto es
+        $1{,}5$\,m.
+  \item \textbf{Exploración de habitación con YOLOE activo}: al activar
+        \texttt{VLMAPS\_ROOM\_EXPLORATION=1}, si falla el candidato principal
+        y fallan los muebles alternativos de la habitación, el sistema genera
+        puntos de paso dentro de la región LabelMe, los ordena por proximidad y
+        navega por ellos con YOLOE ejecutándose durante el movimiento. Si YOLOE
+        dispara con umbral bajo, el robot pausa la ruta, centra la vista, se
+        acerca y confirma con umbral alto. Si la confirmación falla, registra
+        la zona como falsa alarma y continúa explorando.
+  \item \textbf{Parámetros de control}: la exploración queda acotada por
+        \texttt{VLMAPS\_EXPLORE\_MAX\_POINTS} (8 por defecto),
+        \texttt{VLMAPS\_EXPLORE\_TIMEOUT\_S} (60\,s),
+        \texttt{VLMAPS\_YOLOE\_ROOM\_LOW\_THRESH} (0,40),
+        \texttt{VLMAPS\_YOLOE\_CONFIRM\_THRESH} (0,65) y
+        \texttt{VLMAPS\_MAX\_APPROACH\_ATTEMPTS} (3). Por defecto la
+        exploración está desactivada para no alterar experimentos previos.
+  \item \textbf{Telemetría nueva}: \texttt{SearchState} y
+        \texttt{[eval-summary]} incluyen
+        \texttt{entered\_zone\_exploration},
+        \texttt{n\_exploration\_points\_planned},
+        \texttt{n\_exploration\_points\_visited},
+        \texttt{n\_unique\_scan\_zones},
+        \texttt{n\_low\_conf\_detections},
+        \texttt{n\_approach\_attempts},
+        \texttt{n\_false\_positive\_zones},
+        \texttt{continuous\_yoloe\_triggered} y
+        \texttt{final\_success\_source}. Estas métricas permiten separar
+        búsquedas resueltas por candidato directo, por mueble alternativo o por
+        exploración de la habitación.
+  \item \textbf{Prueba manual desde el menú}: abrir \texttt{menu}
+        $\rightarrow$ \texttt{VLMaps pipeline} $\rightarrow$ \texttt{HSSD}
+        $\rightarrow$ \texttt{l) Interactive LLM navigation}. Para probar la
+        exploración activa, lanzar antes en el mismo terminal:
+        \texttt{export VLMAPS\_ROOM\_EXPLORATION=1}. Para desactivarla:
+        \texttt{unset VLMAPS\_ROOM\_EXPLORATION}.
 \end{enumerate}
 
 \end{document}
