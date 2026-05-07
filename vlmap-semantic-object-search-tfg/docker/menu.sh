@@ -956,7 +956,7 @@ while true; do
                             continue
                         fi
                         scene="$SELECTED_SCENE_ID"
-                        echo -n "  Max room exploration points (default 8): "
+                        echo -n "  Exploration points for a typical room n (default 8): "
                         read -r explore_max_points
                         explore_max_points=${explore_max_points:-8}
                         echo -n "  Max exploration time in seconds (default 60): "
