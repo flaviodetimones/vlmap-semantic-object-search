@@ -2937,6 +2937,75 @@ HSR (simulado o físico). El acoplamiento se reduce a goals 2D y observaciones.}
         exploración y lanza \texttt{interactive\_object\_nav.py} sin tener que
         preparar variables manualmente. La opción \texttt{l) Interactive LLM
         navigation} mantiene el comportamiento clásico sin exploración activa.
+  \item \textbf{Doble capa LabelMe/Voronoi}: se separan dos usos que antes
+        estaban mezclados. \texttt{room\_map.npy} conserva solo el suelo
+        navegable marcado manualmente y se usa para movimiento, puntos de paso
+        y límites duros de exploración. La nueva capa
+        \texttt{room\_voronoi.npy} expande cada región navegable hacia las
+        celdas no etiquetadas cercanas y se usa solo para asignar muebles y
+        candidatos VLMap a una habitación. Así una mesa situada sobre una celda
+        ocupada puede pertenecer a \texttt{living\_room}, mientras el robot
+        sigue caminando únicamente por suelo navegable.
+  \item \textbf{Búsqueda confinada por habitación}: en órdenes como
+        \texttt{go to the living room and find the drill}, la habitación
+        explícita pasa a ser una restricción dura. El robot debe entrar en la
+        zona LabelMe de \texttt{living\_room}, filtrar muebles mediante
+        Voronoi y explorar solo puntos de paso dentro de la máscara navegable
+        de esa habitación.
 \end{enumerate}
+
+\begin{figure}[h]
+\centering
+\begin{tikzpicture}[
+  node distance=1.0cm and 1.1cm,
+  box/.style={draw, rounded corners, thick, align=center, minimum width=3.0cm, minimum height=0.85cm},
+  data/.style={box, fill=blue!8},
+  proc/.style={box, fill=orange!12},
+  use/.style={box, fill=green!10},
+  arrow/.style={-{Latex[length=3mm]}, thick}
+]
+  \node[data] (labelme) {LabelMe\\suelo navegable};
+  \node[proc, right=of labelme] (raster) {Rasterizar\\\texttt{room\_map.npy}};
+  \node[proc, right=of raster] (voronoi) {Expandir por\\Voronoi};
+  \node[data, right=of voronoi] (rv) {\texttt{room\_voronoi.npy}\\pertenencia};
+
+  \node[use, below=1.15cm of raster] (nav) {Movimiento\\y puntos de paso};
+  \node[use, below=1.15cm of rv] (furn) {Muebles VLMap\\y candidatos};
+
+  \draw[arrow] (labelme) -- (raster);
+  \draw[arrow] (raster) -- (voronoi);
+  \draw[arrow] (voronoi) -- (rv);
+  \draw[arrow] (raster) -- (nav);
+  \draw[arrow] (rv) -- (furn);
+\end{tikzpicture}
+\caption{Arquitectura de doble capa: LabelMe define dónde puede pisar el robot; Voronoi define a qué habitación pertenecen los muebles y candidatos.}
+\end{figure}
+
+\begin{figure}[h]
+\centering
+\begin{tikzpicture}[
+  node distance=0.8cm,
+  state/.style={draw, rounded corners, thick, align=center, minimum width=4.1cm, minimum height=0.72cm, fill=gray!8},
+  good/.style={state, fill=green!10},
+  warn/.style={state, fill=orange!12},
+  arrow/.style={-{Latex[length=3mm]}, thick}
+]
+  \node[state] (parse) {Orden: habitación + objeto};
+  \node[state, below=of parse] (pin) {Fijar habitación explícita};
+  \node[state, below=of pin] (enter) {Entrar en zona LabelMe navegable};
+  \node[warn, below=of enter] (furniture) {Muebles candidatos\\filtrados con Voronoi};
+  \node[warn, below=of furniture] (scan) {Mirar mueble / punto\\barrido visual corto};
+  \node[state, below=of scan] (cover) {Cobertura de habitación\\solo dentro de LabelMe};
+  \node[good, below=of cover] (end) {Confirmar objeto o fallar};
+
+  \draw[arrow] (parse) -- (pin);
+  \draw[arrow] (pin) -- (enter);
+  \draw[arrow] (enter) -- (furniture);
+  \draw[arrow] (furniture) -- (scan);
+  \draw[arrow] (scan) -- (cover);
+  \draw[arrow] (cover) -- (end);
+\end{tikzpicture}
+\caption{Flujo previsto para búsquedas confinadas: la habitación explícita limita tanto la exploración como los muebles inspeccionables.}
+\end{figure}
 
 \end{document}

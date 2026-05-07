@@ -44,6 +44,12 @@ def main() -> None:
     parser.add_argument("--scene-id", type=int, required=True)
     parser.add_argument("--json", type=Path, default=None, help="Override LabelMe JSON path.")
     parser.add_argument("--min-region-size", type=int, default=50)
+    parser.add_argument(
+        "--voronoi-max-distance-cells",
+        type=int,
+        default=50,
+        help="Distancia máxima para asignar muebles/celdas ocupadas a la región LabelMe más cercana.",
+    )
     parser.add_argument("--scene-dataset-config-file", type=Path, default=DEFAULT_HSSD_CFG)
     args = parser.parse_args()
 
@@ -72,6 +78,8 @@ def main() -> None:
         str(scene_dir),
         "--min-region-size",
         str(args.min_region_size),
+        "--voronoi-max-distance-cells",
+        str(args.voronoi_max_distance_cells),
         "--no-preview",
     ]
     subprocess.run(cmd, cwd=str(APP_DIR.parent), check=True)
