@@ -166,6 +166,33 @@ prompt_valid_scene_id() {
     done
 }
 
+sync_labelme_room_map_if_available() {
+    local scene="$1"
+    local scene_name
+    local anno_dir
+    local label_json
+    local alt_label_json
+
+    scene_name=$(scene_name_from_id "$scene")
+    if [ -z "$scene_name" ]; then
+        return 1
+    fi
+
+    anno_dir="/workspace/annotations/room_labels/$DATASET_TYPE/$scene_name"
+    label_json="$anno_dir/room_labels.json"
+    alt_label_json="$anno_dir/topdown_labeled.json"
+
+    if [ -f "$label_json" ] || [ -f "$alt_label_json" ]; then
+        echo ""
+        echo "► Sincronizando regiones LabelMe con room_map..."
+        python /workspace/tools/convert_room_labelme.py \
+            --dataset-type "$DATASET_TYPE" \
+            --scene-id "$scene" \
+            --voronoi-max-distance-cells 50 \
+            --voronoi-domain-threshold 20
+    fi
+}
+
 run_testing_menu() {
     while true; do
         echo ""
@@ -895,6 +922,7 @@ while true; do
                             continue
                         fi
                         scene="$SELECTED_SCENE_ID"
+                        sync_labelme_room_map_if_available "$scene"
                         echo ""
                         echo "► Launching interactive LLM navigation (scene $scene)  [$DS_LABEL]..."
                         echo "  Type instructions at the prompt. Type 'quit' to stop."
@@ -940,6 +968,7 @@ while true; do
                         echo -n "  Repeated-scan radius in meters (default 1.5): "
                         read -r scan_dedup_radius
                         scan_dedup_radius=${scan_dedup_radius:-1.5}
+                        sync_labelme_room_map_if_available "$scene"
                         echo ""
                         echo "► Launching LLM navigation with room exploration (scene $scene)  [$DS_LABEL]..."
                         echo "  LabelMe room_map is used automatically when available."
@@ -1101,7 +1130,9 @@ while true; do
                             echo "► Convirtiendo anotación manual a room_map..."
                             python /workspace/tools/convert_room_labelme.py \
                                 --dataset-type "$DATASET_TYPE" \
-                                --scene-id "$scene"
+                                --scene-id "$scene" \
+                                --voronoi-max-distance-cells 50 \
+                                --voronoi-domain-threshold 20
                         else
                             echo ""
                             echo "  No se encontró JSON guardado; se omite la conversión."

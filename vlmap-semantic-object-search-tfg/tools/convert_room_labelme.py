@@ -50,6 +50,12 @@ def main() -> None:
         default=50,
         help="Distancia máxima para asignar muebles/celdas ocupadas a la región LabelMe más cercana.",
     )
+    parser.add_argument(
+        "--voronoi-domain-threshold",
+        type=int,
+        default=20,
+        help="Umbral de brillo para el dominio interior del Voronoi; valores bajos expanden más, valores altos respetan más paredes oscuras.",
+    )
     parser.add_argument("--scene-dataset-config-file", type=Path, default=DEFAULT_HSSD_CFG)
     args = parser.parse_args()
 
@@ -80,6 +86,8 @@ def main() -> None:
         str(args.min_region_size),
         "--voronoi-max-distance-cells",
         str(args.voronoi_max_distance_cells),
+        "--voronoi-domain-threshold",
+        str(args.voronoi_domain_threshold),
         "--no-preview",
     ]
     subprocess.run(cmd, cwd=str(APP_DIR.parent), check=True)
@@ -90,6 +98,7 @@ def main() -> None:
     print(f"  JSON usado     : {json_path}")
     print(f"  JSON copiado   : {scene_json_copy}")
     print(f"  room_map final : {room_map_dir}")
+    print(f"  Voronoi        : max={args.voronoi_max_distance_cells} celdas, umbral={args.voronoi_domain_threshold}")
 
 
 if __name__ == "__main__":

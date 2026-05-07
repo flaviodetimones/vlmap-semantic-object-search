@@ -3008,4 +3008,67 @@ HSR (simulado o físico). El acoplamiento se reduce a goals 2D y observaciones.}
 \caption{Flujo previsto para búsquedas confinadas: la habitación explícita limita tanto la exploración como los muebles inspeccionables.}
 \end{figure}
 
+\subsection*{7 de mayo de 2026 --- Corrección de LabelMe/Voronoi y validación de regiones}
+
+\begin{enumerate}
+  \item \textbf{Sincronización automática antes de navegar}: las opciones
+        \texttt{l) Interactive LLM navigation} y \texttt{x) LLM navigation +
+        room exploration} reconvierten automáticamente el JSON de LabelMe si
+        existe en \texttt{/workspace/annotations/room\_labels}. Esto evita que
+        el sistema cargue un \texttt{room\_map} antiguo cuando se han añadido
+        o renombrado regiones desde LabelMe.
+  \item \textbf{Validación de etiquetas}: al arrancar con
+        \texttt{VLMAPS\_ROOM\_EXPLORATION=1}, el sistema compara las etiquetas
+        del JSON de LabelMe con las habitaciones cargadas por
+        \texttt{LabelMeRoomProvider}. Si falta alguna región, aborta con un
+        mensaje explícito en vez de explorar con un mapa incompleto.
+  \item \textbf{Voronoi limitado por paredes}: se sustituye la expansión
+        euclídea global por una expansión conectada desde las regiones LabelMe
+        dentro de un dominio interior visible. El dominio se obtiene de
+        \texttt{topdown\_labeled.png}, \texttt{topdown\_rgb.png} y
+        \texttt{obstacle\_map.png}, conserva solo componentes conectados que
+        tocan alguna región LabelMe y no permite asignar celdas fuera de ese
+        dominio. La capa resultante sigue siendo solo de pertenencia semántica;
+        el robot continúa caminando únicamente por \texttt{room\_map.npy}.
+  \item \textbf{Artefactos de depuración}: cada conversión guarda
+        \texttt{room\_voronoi\_domain.png} y
+        \texttt{room\_voronoi\_viz.png}; además, el arranque de \texttt{x}
+        guarda \texttt{debug/room\_debug\_overlay.png}. Estas imágenes permiten
+        comprobar visualmente si la expansión se queda dentro de la vivienda y
+        si los muebles caen bajo la habitación correcta.
+  \item \textbf{Validación realizada}: se regeneraron las tres escenas HSSD
+        etiquetadas. Resultado: \texttt{102344193\_0} carga 7/7 etiquetas,
+        \texttt{102344280\_0} carga 12/12 y
+        \texttt{108736884\_177263634\_0} carga 15/15. En las tres escenas,
+        \texttt{outside\_domain=0}: no hay celdas Voronoi asignadas fuera del
+        dominio interior generado.
+\end{enumerate}
+
+\begin{figure}[h]
+\centering
+\begin{tikzpicture}[
+  node distance=0.85cm and 1.15cm,
+  box/.style={draw, rounded corners, thick, align=center, minimum width=3.2cm, minimum height=0.78cm},
+  source/.style={box, fill=blue!8},
+  proc/.style={box, fill=orange!12},
+  safe/.style={box, fill=green!10},
+  stop/.style={box, fill=red!8},
+  arrow/.style={-{Latex[length=3mm]}, thick}
+]
+  \node[source] (json) {JSON LabelMe\\regiones navegables};
+  \node[proc, right=of json] (domain) {Dominio interior\\visible y conectado};
+  \node[proc, right=of domain] (bfs) {Expansión por celdas\\máx. 50};
+  \node[safe, below=of bfs] (vor) {\texttt{room\_voronoi.npy}\\muebles y candidatos};
+  \node[stop, below=of domain] (walls) {Paredes / exterior\\no propagables};
+  \node[safe, below=of json] (nav) {\texttt{room\_map.npy}\\movimiento};
+
+  \draw[arrow] (json) -- (domain);
+  \draw[arrow] (domain) -- (bfs);
+  \draw[arrow] (bfs) -- (vor);
+  \draw[arrow] (json) -- (nav);
+  \draw[arrow] (walls) -- node[right, font=\footnotesize] {bloquea} (domain);
+\end{tikzpicture}
+\caption{Voronoi corregido: las regiones LabelMe se expanden solo por el dominio interior conectado, de modo que la pertenencia de muebles no atraviesa paredes ni exterior.}
+\end{figure}
+
 \end{document}
