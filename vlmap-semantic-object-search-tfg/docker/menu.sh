@@ -625,6 +625,7 @@ while true; do
                 echo "  │  m) Create VLMap          (scene_id required)   │"
                 echo "  │  i) Index map             (scene_id required)   │"
                 echo "  │  l) Interactive LLM navigation       [default]  │"
+                echo "  │  x) LLM navigation + room exploration           │"
                 echo "  │  e) Interactive executor navigation             │"
                 echo "  │  t) Testing / evaluation submenu                │"
                 echo "  │  g) Generate obstacle map image                 │"
@@ -659,6 +660,14 @@ while true; do
                         echo ""
                         echo "  ── Step 3 · Interactive LLM navigation ──────────────────────"
                         echo ""
+                        echo "    python $APP/interactive_object_nav.py data_paths=hssd scene_id=0 \\"
+                        echo "        dataset_type=hssd \\"
+                        echo "        scene_dataset_config_file=$HSSD_CFG"
+                        echo ""
+                        echo "    # Same navigation with LabelMe room exploration enabled:"
+                        echo "    VLMAPS_ROOM_EXPLORATION=1 \\"
+                        echo "    VLMAPS_EXPLORE_MAX_POINTS=8 \\"
+                        echo "    VLMAPS_EXPLORE_TIMEOUT_S=60 \\"
                         echo "    python $APP/interactive_object_nav.py data_paths=hssd scene_id=0 \\"
                         echo "        dataset_type=hssd \\"
                         echo "        scene_dataset_config_file=$HSSD_CFG"
@@ -708,6 +717,11 @@ while true; do
                         echo ""
                         echo "  ── Step 3 · Interactive LLM navigation ──────────────────────"
                         echo ""
+                        echo "    python $APP/interactive_object_nav.py data_paths=docker scene_id=0"
+                        echo ""
+                        echo "    # Same navigation with LabelMe room exploration enabled:"
+                        echo "    VLMAPS_ROOM_EXPLORATION=1 VLMAPS_EXPLORE_MAX_POINTS=8 \\"
+                        echo "    VLMAPS_EXPLORE_TIMEOUT_S=60 \\"
                         echo "    python $APP/interactive_object_nav.py data_paths=docker scene_id=0"
                         echo ""
                         echo "  ── Step 4 · Interactive executor navigation ────────────────"
@@ -888,6 +902,57 @@ while true; do
                         cd /workspace/third_party/vlmaps
                         python "$APP/interactive_object_nav.py" \
                             data_paths="$DATA_PATHS" scene_id="$scene" $NAV_EXTRA
+                        ;;
+                    x|X)
+                        echo ""
+                        if [ -z "$OPENAI_API_KEY" ]; then
+                            echo "  WARNING: OPENAI_API_KEY is not set. The script will fail."
+                            echo "  Set it with: export OPENAI_API_KEY=sk-..."
+                        fi
+                        echo "  Available scenes [$DS_LABEL]:"
+                        echo "  ─────────────────────────────────────────────────"
+                        if [ -d "$SCENES_DIR" ]; then
+                            i=0
+                            while IFS= read -r scene_name; do
+                                dir="$SCENES_DIR/$scene_name"
+                                HAS_ROOMS=""
+                                [ -f "$dir/room_map/room_map.npy" ] && HAS_ROOMS=" [room_map manual]"
+                                echo "    scene_id=$i  →  $scene_name$HAS_ROOMS"
+                                i=$((i+1))
+                            done < <(iter_scene_names)
+                        else
+                            echo "    (data directory not found)"
+                        fi
+                        echo ""
+                        if ! prompt_valid_scene_id "scene_id to use" 0; then
+                            continue
+                        fi
+                        scene="$SELECTED_SCENE_ID"
+                        echo -n "  Max room exploration points (default 8): "
+                        read -r explore_max_points
+                        explore_max_points=${explore_max_points:-8}
+                        echo -n "  Max exploration time in seconds (default 60): "
+                        read -r explore_timeout
+                        explore_timeout=${explore_timeout:-60}
+                        echo -n "  YOLOE low-confidence trigger (default 0.40): "
+                        read -r yoloe_low_thresh
+                        yoloe_low_thresh=${yoloe_low_thresh:-0.40}
+                        echo -n "  Repeated-scan radius in meters (default 1.5): "
+                        read -r scan_dedup_radius
+                        scan_dedup_radius=${scan_dedup_radius:-1.5}
+                        echo ""
+                        echo "► Launching LLM navigation with room exploration (scene $scene)  [$DS_LABEL]..."
+                        echo "  LabelMe room_map is used automatically when available."
+                        echo "  Type instructions at the prompt. Type 'quit' to stop."
+                        echo ""
+                        cd /workspace/third_party/vlmaps
+                        VLMAPS_ROOM_EXPLORATION=1 \
+                        VLMAPS_EXPLORE_MAX_POINTS="$explore_max_points" \
+                        VLMAPS_EXPLORE_TIMEOUT_S="$explore_timeout" \
+                        VLMAPS_YOLOE_ROOM_LOW_THRESH="$yoloe_low_thresh" \
+                        VLMAPS_SCAN_DEDUP_RADIUS_M="$scan_dedup_radius" \
+                            python "$APP/interactive_object_nav.py" \
+                                data_paths="$DATA_PATHS" scene_id="$scene" $NAV_EXTRA
                         ;;
                     e|E)
                         echo ""

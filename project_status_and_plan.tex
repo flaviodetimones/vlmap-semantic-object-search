@@ -2932,10 +2932,11 @@ HSR (simulado o físico). El acoplamiento se reduce a goals 2D y observaciones.}
         exploración de la habitación.
   \item \textbf{Prueba manual desde el menú}: abrir \texttt{menu}
         $\rightarrow$ \texttt{VLMaps pipeline} $\rightarrow$ \texttt{HSSD}
-        $\rightarrow$ \texttt{l) Interactive LLM navigation}. Para probar la
-        exploración activa, lanzar antes en el mismo terminal:
-        \texttt{export VLMAPS\_ROOM\_EXPLORATION=1}. Para desactivarla:
-        \texttt{unset VLMAPS\_ROOM\_EXPLORATION}.
+        $\rightarrow$ \texttt{x) LLM navigation + room exploration}. Esa opción
+        activa \texttt{VLMAPS\_ROOM\_EXPLORATION=1}, pregunta los límites de
+        exploración y lanza \texttt{interactive\_object\_nav.py} sin tener que
+        preparar variables manualmente. La opción \texttt{l) Interactive LLM
+        navigation} mantiene el comportamiento clásico sin exploración activa.
 \end{enumerate}
 
 \end{document}
