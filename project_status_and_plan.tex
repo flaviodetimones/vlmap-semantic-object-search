@@ -3101,4 +3101,40 @@ HSR (simulado o físico). El acoplamiento se reduce a goals 2D y observaciones.}
 \caption{Voronoi corregido: las regiones LabelMe se expanden solo por el dominio interior conectado, de modo que la pertenencia de muebles no atraviesa paredes ni exterior.}
 \end{figure}
 
+\subsection*{11 de mayo de 2026 --- Ajuste de navegación estrecha y acercamiento visual}
+
+\begin{enumerate}
+  \item \textbf{Inflación de planificación reducida}: el mapa usado para el
+        grafo de planificación pasa de 3 a 2 iteraciones de dilatación por
+        defecto (\(\sim\)10\,cm por lado con celdas de 5\,cm). Esto permite
+        entrar en pasos más estrechos sin desactivar el escudo de ejecución,
+        que sigue usando el mapa bruto de navegación. El valor queda
+        parametrizado con \texttt{VLMAPS\_PLAN\_DILATION\_ITERS}; para volver
+        al comportamiento anterior basta lanzar con valor 3.
+  \item \textbf{Corrección del giro hacia objetivo}: la rutina
+        \texttt{face\_toward\_pos()} se alinea con la convención angular real
+        del planificador: \(0^\circ\) mira hacia el norte del mapa y los
+        ángulos positivos corresponden a giro a la derecha. Antes mezclaba
+        otra convención y podía orientar la cámara hacia el lado opuesto del
+        objeto detectado.
+  \item \textbf{Acercamiento más permisivo y trazable}: los puntos de
+        acercamiento a una detección visual usan ahora una holgura mínima de
+        2 celdas por defecto, configurable con
+        \texttt{VLMAPS\_APPROACH\_MIN\_CLEARANCE\_CELLS}. Si el mapa inflado no
+        ofrece ningún punto viable, se intenta una segunda selección sobre el
+        mapa bruto navegable y se conserva el filtro de no salir de la región
+        LabelMe fijada.
+  \item \textbf{Proyección visual menos conservadora}: cuando YOLOE dispara
+        con umbral bajo durante la exploración, la celda objetivo proyectada en
+        dirección de la cámara se calcula sobre el mapa bruto navegable. Esto
+        evita cortar la proyección demasiado pronto cerca de muebles, que era
+        una de las causas de acercamientos que apenas se movían.
+  \item \textbf{Recuperación ante fallo de sesión YOLOE}: si durante el
+        centrado, el acercamiento o la confirmación final aparece un
+        \texttt{Broken pipe}, se reabre la sesión de YOLOE y se reintenta una
+        vez antes de descartar el acercamiento. El objetivo sigue siendo el
+        mismo: detección lejana a 0,40 sólo dispara acercamiento; éxito final
+        únicamente con confirmación cercana a 0,80.
+\end{enumerate}
+
 \end{document}
