@@ -959,6 +959,12 @@ while true; do
                         echo -n "  Exploration points per room (default 8): "
                         read -r explore_max_points
                         explore_max_points=${explore_max_points:-8}
+                        echo -n "  Minimum distance between exploration points in meters (default 0.90): "
+                        read -r explore_point_min_sep
+                        explore_point_min_sep=${explore_point_min_sep:-0.90}
+                        echo -n "  Minimum clearance in cells for preferred candidates (default 3): "
+                        read -r explore_min_clearance
+                        explore_min_clearance=${explore_min_clearance:-3}
                         echo -n "  Max exploration time in seconds (default 60): "
                         read -r explore_timeout
                         explore_timeout=${explore_timeout:-60}
@@ -976,7 +982,11 @@ while true; do
                         echo ""
                         cd /workspace/third_party/vlmaps
                         VLMAPS_ROOM_EXPLORATION=1 \
+                        VLMAPS_EXPLORE_POINTS="$explore_max_points" \
                         VLMAPS_EXPLORE_MAX_POINTS="$explore_max_points" \
+                        VLMAPS_EXPLORE_POINT_MIN_SEP_M="$explore_point_min_sep" \
+                        VLMAPS_EXPLORE_MIN_CLEARANCE_CELLS="$explore_min_clearance" \
+                        VLMAPS_EXPLORE_DEBUG=1 \
                         VLMAPS_EXPLORE_TIMEOUT_S="$explore_timeout" \
                         VLMAPS_YOLOE_ROOM_LOW_THRESH="$yoloe_low_thresh" \
                         VLMAPS_SCAN_DEDUP_RADIUS_M="$scan_dedup_radius" \

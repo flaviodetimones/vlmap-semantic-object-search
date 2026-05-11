@@ -3051,15 +3051,20 @@ HSR (simulado o físico). El acoplamiento se reduce a goals 2D y observaciones.}
         con umbral alto desde cerca.
   \item \textbf{Circuito fijo por habitación con disparo en ruta}: la opción
         \texttt{x} mantiene un número fijo de puntos por habitación; por
-        defecto, 8. La generación de puntos reparte esos hitos sobre una
-        rejilla que cubre la región navegable, aplica una separación mínima
-        explícita entre puntos (\texttt{VLMAPS\_EXPLORE\_POINT\_MIN\_SEP\_M},
-        0,90\,m por defecto) y después los ordena como circuito. Si no caben
-        todos los puntos con esa separación, la distancia se relaja
-        progresivamente y se imprime el valor usado. Esto evita que una
-        habitación alargada concentre todos los puntos en el centro o deje sin
-        cubrir una esquina útil. Mientras el robot recorre ese circuito, YOLOE
-        sigue vigilando con umbral bajo
+        defecto, 8. La generación de puntos ya no usa una rejilla rectangular
+        sobre la caja envolvente de la habitación: ahora agrupa directamente las
+        celdas navegables LabelMe reales con una selección tipo
+        \emph{k-medoids}, prueba tres niveles de candidatos
+        (margen preferido, margen relajado y cualquier celda navegable), aplica
+        una separación mínima configurable
+        (\texttt{VLMAPS\_EXPLORE\_POINT\_MIN\_SEP\_M}, 0,90\,m por defecto) y
+        ordena el resultado por vecino más cercano desde la pose actual. Esto
+        evita que una región no convexa concentre todos los puntos en el centro
+        o deje sin cubrir esquinas útiles. La opción \texttt{x} también activa
+        \texttt{VLMAPS\_EXPLORE\_DEBUG=1}, guardando una imagen por exploración
+        en \texttt{debug/zone\_explore\_<room>\_<target>.png} con máscara,
+        candidatos y circuito elegido. Mientras el robot recorre ese circuito,
+        YOLOE sigue vigilando con umbral bajo
         0.40: si aparece una detección, la ruta se pausa, se abandona
         temporalmente el punto del circuito y el robot proyecta una meta
         navegable en la dirección de la cámara que acaba de ver el objeto. La
