@@ -3049,13 +3049,16 @@ HSR (simulado o físico). El acoplamiento se reduce a goals 2D y observaciones.}
         soporte cuando existe, avanzar sólo si la siguiente celda es navegable
         y permanece dentro de la habitación fijada, y repetir la confirmación
         con umbral alto desde cerca.
-  \item \textbf{Circuito fijo por habitación}: la opción \texttt{x} vuelve a un
-        número fijo de puntos por habitación; por defecto, 8. La generación de
-        puntos sigue usando muestreo distribuido para cubrir la región, pero
-        ahora los ordena como un circuito alrededor de la propia habitación y
-        ya no dispara YOLOE durante el trayecto. La detección se hace sólo al
-        llegar a cada punto, mediante un barrido lateral $\pm 30^\circ$, antes
-        de pasar al siguiente.
+  \item \textbf{Circuito fijo por habitación con disparo en ruta}: la opción
+        \texttt{x} mantiene un número fijo de puntos por habitación; por
+        defecto, 8. La generación de puntos sigue usando muestreo distribuido
+        para cubrir la región y los ordena como un circuito alrededor de la
+        propia habitación. Mientras el robot recorre ese circuito, YOLOE sigue
+        vigilando en segundo plano: si aparece una detección, la ruta se pausa,
+        el robot se acerca por espacio navegable y sólo acepta el hallazgo si
+        logra confirmarlo desde cerca con un umbral fuerte de 0.80. Si no hay
+        disparo en ruta, al llegar a cada punto hace un barrido lateral
+        $\pm 30^\circ$ y pasa al siguiente.
 \end{enumerate}
 
 \begin{figure}[h]
