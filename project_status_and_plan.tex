@@ -3051,17 +3051,18 @@ HSR (simulado o físico). El acoplamiento se reduce a goals 2D y observaciones.}
         con umbral alto desde cerca.
   \item \textbf{Circuito fijo por habitación con disparo en ruta}: la opción
         \texttt{x} mantiene un número fijo de puntos por habitación; por
-        defecto, 8. La generación de puntos reparte esos hitos por sectores
-        angulares de la región navegable, forzando un circuito que recorra el
-        perímetro útil de la habitación en vez de concentrarse en la zona
-        central. Mientras el robot recorre ese circuito, YOLOE sigue
-        vigilando en segundo plano con umbral bajo 0.40: si aparece una
-        detección, la ruta se pausa, se abandona temporalmente el punto del
-        circuito y el robot intenta acercarse por espacio navegable hacia la
-        mejor celda semántica del objetivo dentro de esa misma habitación.
-        Sólo acepta el hallazgo si logra confirmarlo desde cerca con un umbral
-        fuerte de 0.80. Si no hay disparo en ruta, al llegar a cada punto hace
-        un barrido lateral $\pm 30^\circ$ y pasa al siguiente.
+        defecto, 8. La generación de puntos reparte esos hitos sobre una
+        rejilla que cubre la región navegable y después los ordena como
+        circuito. Esto evita que una habitación alargada concentre todos los
+        puntos en el centro o deje sin cubrir una esquina útil. Mientras el
+        robot recorre ese circuito, YOLOE sigue vigilando con umbral bajo
+        0.40: si aparece una detección, la ruta se pausa, se abandona
+        temporalmente el punto del circuito y el robot proyecta una meta
+        navegable en la dirección de la cámara que acaba de ver el objeto. La
+        confirmación se hace con una sesión YOLOE separada a 0.80, de modo que
+        el umbral bajo de aviso y el umbral alto de confirmación no se pisan.
+        Si no hay disparo en ruta, al llegar a cada punto hace un barrido
+        lateral $\pm 30^\circ$ y pasa al siguiente.
 \end{enumerate}
 
 \begin{figure}[h]
