@@ -3049,13 +3049,13 @@ HSR (simulado o físico). El acoplamiento se reduce a goals 2D y observaciones.}
         soporte cuando existe, avanzar sólo si la siguiente celda es navegable
         y permanece dentro de la habitación fijada, y repetir la confirmación
         con umbral alto desde cerca.
-  \item \textbf{Puntos de exploración proporcionales al área}: la opción
-        \texttt{x} interpreta los 8 puntos por defecto como el número de puntos
-        para una habitación de tamaño típico $n$. El sistema calcula la mediana
-        de área navegable de las regiones LabelMe de la escena y escala
-        linealmente: $2n \rightarrow 16$ puntos,
-        $0{,}75n \rightarrow 6$ puntos. La selección usa muestreo distribuido
-        para cubrir la región, no sólo puntos centrales.
+  \item \textbf{Circuito fijo por habitación}: la opción \texttt{x} vuelve a un
+        número fijo de puntos por habitación; por defecto, 8. La generación de
+        puntos sigue usando muestreo distribuido para cubrir la región, pero
+        ahora los ordena como un circuito alrededor de la propia habitación y
+        ya no dispara YOLOE durante el trayecto. La detección se hace sólo al
+        llegar a cada punto, mediante un barrido lateral $\pm 30^\circ$, antes
+        de pasar al siguiente.
 \end{enumerate}
 
 \begin{figure}[h]
