@@ -3051,14 +3051,17 @@ HSR (simulado o físico). El acoplamiento se reduce a goals 2D y observaciones.}
         con umbral alto desde cerca.
   \item \textbf{Circuito fijo por habitación con disparo en ruta}: la opción
         \texttt{x} mantiene un número fijo de puntos por habitación; por
-        defecto, 8. La generación de puntos sigue usando muestreo distribuido
-        para cubrir la región y los ordena como un circuito alrededor de la
-        propia habitación. Mientras el robot recorre ese circuito, YOLOE sigue
-        vigilando en segundo plano: si aparece una detección, la ruta se pausa,
-        el robot se acerca por espacio navegable y sólo acepta el hallazgo si
-        logra confirmarlo desde cerca con un umbral fuerte de 0.80. Si no hay
-        disparo en ruta, al llegar a cada punto hace un barrido lateral
-        $\pm 30^\circ$ y pasa al siguiente.
+        defecto, 8. La generación de puntos reparte esos hitos por sectores
+        angulares de la región navegable, forzando un circuito que recorra el
+        perímetro útil de la habitación en vez de concentrarse en la zona
+        central. Mientras el robot recorre ese circuito, YOLOE sigue
+        vigilando en segundo plano con umbral bajo 0.40: si aparece una
+        detección, la ruta se pausa, se abandona temporalmente el punto del
+        circuito y el robot intenta acercarse por espacio navegable hacia la
+        mejor celda semántica del objetivo dentro de esa misma habitación.
+        Sólo acepta el hallazgo si logra confirmarlo desde cerca con un umbral
+        fuerte de 0.80. Si no hay disparo en ruta, al llegar a cada punto hace
+        un barrido lateral $\pm 30^\circ$ y pasa al siguiente.
 \end{enumerate}
 
 \begin{figure}[h]
