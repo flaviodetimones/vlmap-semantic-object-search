@@ -3192,4 +3192,31 @@ HSR (simulado o físico). El acoplamiento se reduce a goals 2D y observaciones.}
         una configuración fija cuando interese comparar resultados.
 \end{enumerate}
 
+\subsection*{12 de mayo de 2026 --- Ajuste de puntos y acercamiento a detecciones}
+
+\begin{enumerate}
+  \item \textbf{Menos puntos por defecto}: el modo automático deja de usar la
+        mediana de habitaciones como unidad principal, porque en escenas con
+        habitaciones pequeñas hacía que una cocina de tamaño medio escalase a
+        12 puntos. La referencia pasa a ser física, 8\,m\(^2\), con 8 puntos
+        base, mínimo 4 y máximo 16. En la práctica, una cocina de unos
+        7--8\,m\(^2\) vuelve a generar alrededor de 8 puntos.
+  \item \textbf{Centrado visual con memoria}: durante el centrado YOLOE se
+        guarda la última caja detectada. Si el último giro hace perder el
+        objeto, se deshace ese giro una vez y el acercamiento conserva la caja
+        anterior como pista visual. Esto evita que el robot corte el
+        acercamiento tras un único giro demasiado agresivo.
+  \item \textbf{Respaldo planificado más cercano}: si el acercamiento visual no
+        alcanza la confirmación de 0,80, el respaldo A* ya no prioriza el punto
+        de mayor holgura alrededor de la detección. Ahora prioriza el punto
+        navegable viable más cercano a la celda proyectada del objeto, y al
+        llegar se orienta explícitamente hacia esa celda antes de volver a
+        confirmar.
+  \item \textbf{Persistencia tras avance parcial}: aunque el servo visual haya
+        avanzado algo, si no confirma desde cerca se intenta igualmente el
+        respaldo al punto cercano al objeto. La detección de 0,40--0,79 sigue
+        siendo sólo un disparador; el éxito continúa requiriendo confirmación
+        cercana con el umbral alto.
+\end{enumerate}
+
 \end{document}

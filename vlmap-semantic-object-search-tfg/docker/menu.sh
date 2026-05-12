@@ -964,13 +964,15 @@ while true; do
                             explore_points_auto=1
                             explore_points_per_ref=8
                             explore_min_points=4
-                            explore_max_points_cap=20
+                            explore_max_points_cap=16
+                            explore_reference_area_m2=8.0
                         else
                             explore_points_value="$explore_points_input"
                             explore_points_auto=0
                             explore_points_per_ref="$explore_points_input"
                             explore_min_points="$explore_points_input"
                             explore_max_points_cap="$explore_points_input"
+                            explore_reference_area_m2=8.0
                         fi
                         echo -n "  Minimum distance between exploration points in meters (default 0.90): "
                         read -r explore_point_min_sep
@@ -1001,6 +1003,7 @@ while true; do
                         VLMAPS_EXPLORE_POINTS_PER_REFERENCE="$explore_points_per_ref" \
                         VLMAPS_EXPLORE_MIN_POINTS="$explore_min_points" \
                         VLMAPS_EXPLORE_MAX_POINTS_CAP="$explore_max_points_cap" \
+                        VLMAPS_EXPLORE_REFERENCE_AREA_M2="$explore_reference_area_m2" \
                         VLMAPS_EXPLORE_POINT_MIN_SEP_M="$explore_point_min_sep" \
                         VLMAPS_EXPLORE_MIN_CLEARANCE_CELLS="$explore_min_clearance" \
                         VLMAPS_APPROACH_MIN_CLEARANCE_CELLS="$explore_min_clearance" \
