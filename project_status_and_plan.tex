@@ -3113,10 +3113,10 @@ HSR (simulado o físico). El acoplamiento se reduce a goals 2D y observaciones.}
         al comportamiento anterior basta lanzar con valor 3.
   \item \textbf{Corrección del giro hacia objetivo}: la rutina
         \texttt{face\_toward\_pos()} se alinea con la convención angular real
-        del planificador: \(0^\circ\) mira hacia el norte del mapa y los
-        ángulos positivos corresponden a giro a la derecha. Antes mezclaba
-        otra convención y podía orientar la cámara hacia el lado opuesto del
-        objeto detectado.
+        observada en Habitat: \(0^\circ\) mira hacia el norte del mapa y, en
+        este wrapper, \texttt{turn\_left} incrementa el ángulo almacenado.
+        Antes mezclaba otra convención y podía orientar la cámara hacia el lado
+        opuesto del objeto detectado.
   \item \textbf{Acercamiento más permisivo y trazable}: los puntos de
         acercamiento a una detección visual usan ahora una holgura mínima de
         2 celdas por defecto, configurable con
@@ -3135,6 +3135,34 @@ HSR (simulado o físico). El acoplamiento se reduce a goals 2D y observaciones.}
         vez antes de descartar el acercamiento. El objetivo sigue siendo el
         mismo: detección lejana a 0,40 sólo dispara acercamiento; éxito final
         únicamente con confirmación cercana a 0,80.
+\end{enumerate}
+
+\subsection*{12 de mayo de 2026 --- Servo visual antes de planificación en detecciones YOLOE}
+
+\begin{enumerate}
+  \item \textbf{Acercamiento guiado por la detección}: cuando YOLOE detecta un
+        objeto con umbral bajo durante la exploración, el robot ya no gira
+        primero hacia una celda proyectada ni navega directamente a un
+        \textit{standoff} lateral. Primero centra la caja de YOLOE y avanza por
+        pasos seguros mientras respeta obstáculos y la región LabelMe activa.
+        La planificación A* queda como respaldo si el acercamiento frontal no
+        logra avanzar.
+  \item \textbf{Menos cambios de objetivo durante el acercamiento}: el flujo
+        anterior podía perder la botella detectada, girar hacia otra zona y
+        enganchar otra botella parecida. El nuevo orden mantiene la referencia
+        visual original como prioridad y evita preplanificar hacia muebles o
+        celdas estimadas antes de intentar el acercamiento visual.
+  \item \textbf{Confirmación estricta}: la detección lejana a
+        \texttt{0.40} sigue siendo sólo un disparador. La búsqueda únicamente
+        se marca como exitosa tras confirmación cercana con el umbral alto
+        configurado, por defecto \texttt{0.80}.
+  \item \textbf{Resumen de consola legible}: el bloque JSON completo
+        \texttt{[eval-summary]} deja de imprimirse en modo interactivo por
+        defecto. En su lugar aparece un resumen corto con objetivo, habitación,
+        puntos explorados, detecciones de bajo umbral, acercamientos y falsas
+        alarmas. Para evaluaciones automáticas se conserva el JSON activando
+        \texttt{VLMAPS\_EVAL\_SUMMARY\_JSON=1}; en modo headless sigue activo
+        por defecto.
 \end{enumerate}
 
 \end{document}
