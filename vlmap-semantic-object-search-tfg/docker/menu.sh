@@ -962,10 +962,10 @@ while true; do
                         if [ "$explore_points_input" = "auto" ] || [ "$explore_points_input" = "AUTO" ]; then
                             explore_points_value="auto"
                             explore_points_auto=1
-                            explore_points_per_ref=8
-                            explore_min_points=4
-                            explore_max_points_cap=16
-                            explore_reference_area_m2=8.0
+                            explore_points_per_ref=6
+                            explore_min_points=3
+                            explore_max_points_cap=12
+                            explore_reference_area_m2=10.0
                         else
                             explore_points_value="$explore_points_input"
                             explore_points_auto=0
@@ -999,6 +999,7 @@ while true; do
                         VLMAPS_ROOM_EXPLORATION=1 \
                         VLMAPS_UI_COMPACT=1 \
                         VLMAPS_UI_TILE=1 \
+                        VLMAPS_UI_DASHBOARD=1 \
                         VLMAPS_EXPLORE_POINTS="$explore_points_value" \
                         VLMAPS_EXPLORE_POINTS_AUTO="$explore_points_auto" \
                         VLMAPS_EXPLORE_MAX_POINTS="$explore_points_per_ref" \
