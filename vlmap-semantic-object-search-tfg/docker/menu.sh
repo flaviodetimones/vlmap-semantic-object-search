@@ -997,6 +997,8 @@ while true; do
                         echo ""
                         cd /workspace/third_party/vlmaps
                         VLMAPS_ROOM_EXPLORATION=1 \
+                        VLMAPS_UI_COMPACT=1 \
+                        VLMAPS_UI_TILE=1 \
                         VLMAPS_EXPLORE_POINTS="$explore_points_value" \
                         VLMAPS_EXPLORE_POINTS_AUTO="$explore_points_auto" \
                         VLMAPS_EXPLORE_MAX_POINTS="$explore_points_per_ref" \
