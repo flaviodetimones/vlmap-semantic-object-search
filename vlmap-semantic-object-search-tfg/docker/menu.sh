@@ -956,9 +956,22 @@ while true; do
                             continue
                         fi
                         scene="$SELECTED_SCENE_ID"
-                        echo -n "  Exploration points per room (default 8): "
-                        read -r explore_max_points
-                        explore_max_points=${explore_max_points:-8}
+                        echo -n "  Exploration points per room: auto or number (default auto): "
+                        read -r explore_points_input
+                        explore_points_input=${explore_points_input:-auto}
+                        if [ "$explore_points_input" = "auto" ] || [ "$explore_points_input" = "AUTO" ]; then
+                            explore_points_value="auto"
+                            explore_points_auto=1
+                            explore_points_per_ref=8
+                            explore_min_points=4
+                            explore_max_points_cap=20
+                        else
+                            explore_points_value="$explore_points_input"
+                            explore_points_auto=0
+                            explore_points_per_ref="$explore_points_input"
+                            explore_min_points="$explore_points_input"
+                            explore_max_points_cap="$explore_points_input"
+                        fi
                         echo -n "  Minimum distance between exploration points in meters (default 0.90): "
                         read -r explore_point_min_sep
                         explore_point_min_sep=${explore_point_min_sep:-0.90}
@@ -982,8 +995,12 @@ while true; do
                         echo ""
                         cd /workspace/third_party/vlmaps
                         VLMAPS_ROOM_EXPLORATION=1 \
-                        VLMAPS_EXPLORE_POINTS="$explore_max_points" \
-                        VLMAPS_EXPLORE_MAX_POINTS="$explore_max_points" \
+                        VLMAPS_EXPLORE_POINTS="$explore_points_value" \
+                        VLMAPS_EXPLORE_POINTS_AUTO="$explore_points_auto" \
+                        VLMAPS_EXPLORE_MAX_POINTS="$explore_points_per_ref" \
+                        VLMAPS_EXPLORE_POINTS_PER_REFERENCE="$explore_points_per_ref" \
+                        VLMAPS_EXPLORE_MIN_POINTS="$explore_min_points" \
+                        VLMAPS_EXPLORE_MAX_POINTS_CAP="$explore_max_points_cap" \
                         VLMAPS_EXPLORE_POINT_MIN_SEP_M="$explore_point_min_sep" \
                         VLMAPS_EXPLORE_MIN_CLEARANCE_CELLS="$explore_min_clearance" \
                         VLMAPS_APPROACH_MIN_CLEARANCE_CELLS="$explore_min_clearance" \

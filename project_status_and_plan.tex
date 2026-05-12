@@ -3165,4 +3165,31 @@ HSR (simulado o físico). El acoplamiento se reduce a goals 2D y observaciones.}
         por defecto.
 \end{enumerate}
 
+\subsection*{12 de mayo de 2026 --- Puntos de exploración adaptativos por región}
+
+\begin{enumerate}
+  \item \textbf{Modo automático por defecto}: el flujo \texttt{x} ya no fuerza
+        siempre 8 puntos por habitación. Si se deja el valor por defecto
+        \texttt{auto}, el sistema calcula el número de puntos según el área
+        navegable LabelMe de la región: una habitación de tamaño de referencia
+        recibe 8 puntos, una de doble tamaño tiende a 16 y una de tres cuartos
+        tiende a 6.
+  \item \textbf{Límites prácticos}: para evitar rutas demasiado largas o zonas
+        pequeñas mal cubiertas, el modo automático queda acotado por defecto
+        entre 4 y 20 puntos, configurable con
+        \texttt{VLMAPS\_EXPLORE\_MIN\_POINTS} y
+        \texttt{VLMAPS\_EXPLORE\_MAX\_POINTS\_CAP}. El número base por región
+        de referencia se controla con
+        \texttt{VLMAPS\_EXPLORE\_POINTS\_PER\_REFERENCE}.
+  \item \textbf{Corrección por forma}: además del área, se aplica un pequeño
+        factor de forma. Las regiones alargadas o con baja ocupación dentro de
+        su caja envolvente reciben algún punto adicional porque suelen tener
+        brazos, esquinas o pasillos que un muestreo puramente proporcional
+        puede ignorar.
+  \item \textbf{Reproducibilidad}: si se escribe un número en el menú
+        \texttt{x}, se desactiva el modo automático y se mantiene exactamente
+        ese número de puntos, como antes. Esto permite repetir experimentos con
+        una configuración fija cuando interese comparar resultados.
+\end{enumerate}
+
 \end{document}
