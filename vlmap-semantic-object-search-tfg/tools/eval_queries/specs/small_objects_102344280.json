@@ -1,13 +1,66 @@
 {
-  "scene_id": 0,
-  "scene_name": "102344280_0",
-  "placements": [
-    {"object": "bottle", "query_target": "bottle", "furniture": "counter", "room_hint": "kitchen", "count": 1, "tags": ["level3", "needs_surrogate", "small_object"]},
-    {"object": "laptop", "query_target": "laptop", "furniture": "table", "room_hint": "dining room", "count": 1, "tags": ["level3", "needs_surrogate", "small_object"]},
-    {"object": "cup", "query_target": "mug", "furniture": "counter", "room_hint": "kitchen", "count": 1, "tags": ["level3", "needs_surrogate", "small_object"]},
-    {"object": "toaster", "query_target": "toaster", "furniture": "cabinet", "room_hint": "kitchen", "count": 1, "tags": ["level3", "needs_surrogate", "small_object"]},
-    {"object": "teapot", "query_target": "teapot", "furniture": "counter", "room_hint": "kitchen", "count": 1, "tags": ["level3", "needs_surrogate", "small_object"]},
-    {"object": "book", "query_target": "book", "furniture": "table", "room_hint": "bedroom", "count": 1, "tags": ["level3", "needs_surrogate", "small_object"]},
-    {"object": "book", "query_target": "book", "furniture": "table", "room_hint": "dining room", "count": 1, "tags": ["level3", "needs_surrogate", "small_object"]}
-  ]
+    "scene_id": 0,
+    "scene_name": "102344280_0",
+    "placements": [
+        {
+            "object": "bottle",
+            "query_target": "bottle",
+            "furniture": "counter",
+            "room_hint": "kitchen",
+            "count": 1,
+            "tags": [
+                "level3",
+                "needs_surrogate",
+                "small_object"
+            ]
+        },
+        {
+            "object": "laptop",
+            "query_target": "laptop",
+            "furniture": "table",
+            "room_hint": "dining room",
+            "count": 1,
+            "tags": [
+                "level3",
+                "needs_surrogate",
+                "small_object"
+            ]
+        },
+        {
+            "object": "toaster",
+            "query_target": "toaster",
+            "furniture": "cabinet",
+            "room_hint": "kitchen",
+            "count": 1,
+            "tags": [
+                "level3",
+                "needs_surrogate",
+                "small_object"
+            ]
+        },
+        {
+            "object": "teapot",
+            "query_target": "teapot",
+            "furniture": "counter",
+            "room_hint": "kitchen",
+            "count": 1,
+            "tags": [
+                "level3",
+                "needs_surrogate",
+                "small_object"
+            ]
+        },
+        {
+            "object": "drill",
+            "query_target": "drill",
+            "furniture": "table",
+            "count": 1,
+            "tags": [
+                "level3",
+                "needs_surrogate",
+                "small_object"
+            ],
+            "room_hint": "dining room"
+        }
+    ]
 }

@@ -134,6 +134,13 @@ _EXTRA_CATALOG: Dict[str, List[str]] = {
         "c0fa43b54bd550bd1cdb93ef4d97b57ce585fc19",  # Apple MacBook Pro 17"
         "8cad457393cf850f77738f647a8c5e445176d881",  # Apple MacBook Pro 15.4"
     ],
+    "drill": [
+        # Black & Decker cordless drill (orange) imported from Google Scanned
+        # Objects (CC0). Mesh: 2604 verts / 2972 faces, ~25 cm tall, scaled
+        # from cm to m and rotated to Y-up at import time. Files live under
+        # data/versioned_data/hssd-hab/objects/8/.
+        "827f0234613d4f14f3cd8efcf8748e48bnddrill",
+    ],
 }
 
 
@@ -256,6 +263,9 @@ def _matches_room_hint(detected_room: Optional[str], hint: Optional[str]) -> boo
         return False
     hint_lower = hint.strip().lower()
     base = detected_room.split("__")[0]
+    if hint_lower in {"storage room", "storage_room", "storage"}:
+        storage_like = {"storage room", "storage_room", "storage", "closet", "closet.001", "laundryroom"}
+        return base in storage_like or any(alias in detected_room for alias in storage_like)
     return hint_lower == base or hint_lower in detected_room
 
 
@@ -323,6 +333,7 @@ _OBJECT_FOOTPRINT_HALF_M: Dict[str, float] = {
     "kettle":      0.10,
     "plate":       0.12,
     "bowl":        0.10,
+    "drill":       0.07,
 }
 _DEFAULT_OBJ_HALF_M = 0.10
 
@@ -604,6 +615,13 @@ def main() -> None:
     p.add_argument("--no-backup", action="store_true",
                    help="Skip the *.before_placements.json backup (useful when "
                         "writing to --out-scene only).")
+    p.add_argument(
+        "--replace-spec-objects",
+        action="store_true",
+        help="Remove existing instances whose template id matches an object in "
+             "the current spec before placing fresh instances. Use when "
+             "regenerating managed small-object placements.",
+    )
     args = p.parse_args()
 
     if not args.scene.exists():
@@ -642,6 +660,26 @@ def main() -> None:
     scene = json.loads(args.scene.read_text(encoding="utf-8"))
     instances: List[Dict[str, Any]] = scene.setdefault("object_instances", [])
     articulated_instances: List[Dict[str, Any]] = scene.get("articulated_object_instances", [])
+    if args.replace_spec_objects:
+        managed_templates: Set[str] = set()
+        for entry in placements:
+            obj_cat = str(entry.get("object", "")).strip().lower()
+            if not obj_cat:
+                continue
+            template_id = _safe_template_for_category(catalog, obj_cat)
+            if template_id:
+                managed_templates.add(template_id)
+        if managed_templates:
+            before = len(instances)
+            instances[:] = [
+                inst for inst in instances
+                if _instance_template_id(inst) not in managed_templates
+            ]
+            removed = before - len(instances)
+            print(
+                f"Removed {removed} existing managed placement(s) "
+                f"before regeneration."
+            )
     host_instances: List[Dict[str, Any]] = list(instances) + list(articulated_instances)
     n_existing = len(instances)
     print(
@@ -738,10 +776,33 @@ def main() -> None:
             if _placed_for_entry >= _target_count:
                 break
             host_key = _candidate_host_key(candidate, furn_cat, room_id)
-            n_reuse = host_reuse_count.get(host_key, 0)
+            # Always restart the offset-pattern from k=0 for each new
+            # placement on a host. The generic-overlap and fits_on_top
+            # checks will skip slots that are already occupied (by native
+            # geometry or by our previous insertions). The cumulative
+            # host_reuse_count is kept for logging only — it inflated
+            # before because a prior object that had to skip k=1,2,3
+            # advanced the counter and pushed the next object's start
+            # index past the host top margin.
+            n_reuse = 0
             offset_step = (
                 _FLOOR_OFFSET_STEP_M if furn_cat == "floor" else _FURNITURE_OFFSET_STEP_M
             )
+            # Adaptive step for furniture: shrink the lateral spacing so up
+            # to 5 placements (indices 0, ±1, ±2) fit inside the host top
+            # margin. Without this, the 4th object on a counter (n_reuse=3)
+            # overshoots the front-edge fits_on_top check.
+            if furn_cat != "floor":
+                _th = _FURNITURE_TOP_HALF_XZ_M.get(furn_cat, _DEFAULT_TOP_HALF_M)
+                _oh = _OBJECT_FOOTPRINT_HALF_M.get(obj_cat, _DEFAULT_OBJ_HALF_M)
+                _avail = max(0.0, _th - _oh - 0.05)
+                if _avail > 0:
+                    # avail / 3 yields up to 7 lateral positions
+                    # (indices 0, ±1, ±2, ±3) — enough margin for 4
+                    # objects on the same counter even when the bias has
+                    # a small projection along the perpendicular axis.
+                    offset_step = min(offset_step, _avail / 3.0)
+                offset_step = max(0.10, offset_step)
 
             if furn_cat == "floor":
                 fx, fy, fz = (float(v) for v in candidate)
@@ -756,8 +817,13 @@ def main() -> None:
             #       it approaches from instead of behind a wall.
             #
             # The bias vector points from the host translation toward the
-            # room polygon centroid, capped to ~60% of the available
-            # margin so the reuse pattern still has room to spread.
+            # room polygon centroid. We push as close to the room centre as
+            # the host top will allow: full (top_half - obj_half) margin
+            # minus a 5 cm safety strip so the body doesn't graze the edge.
+            # The reuse pattern (offset_step = 0.30 m) is then applied on
+            # top — for hosts where bias eats most of the margin, the loop
+            # will reduce the reuse offset until both fit_on_top and the
+            # generic-overlap check pass.
             poly = rooms.get(room_id) if room_id else None
             bias_x, bias_z = 0.0, 0.0
             if furn_cat != "floor" and poly:
@@ -773,29 +839,64 @@ def main() -> None:
                         _obj_half = _OBJECT_FOOTPRINT_HALF_M.get(
                             obj_cat, _DEFAULT_OBJ_HALF_M
                         )
-                        _bias_cap = max(0.0, 0.6 * (_top_half - _obj_half))
-                        _bias_mag = min(0.25, _bias_cap)
+                        # Reserve 12 cm of margin for the lateral spread.
+                        # If we maxed out the bias, all four objects on a
+                        # counter would land exactly at the front-edge limit
+                        # and the 4th one wouldn't fit when the bias has any
+                        # projection along the perpendicular axis.
+                        _safety = 0.12
+                        _bias_mag = max(0.0, _top_half - _obj_half - _safety)
+                        # Don't bias past the room centroid itself.
+                        _bias_mag = min(_bias_mag, _norm)
                         bias_x = (_vx / _norm) * _bias_mag
                         bias_z = (_vz / _norm) * _bias_mag
 
-            offset_x, offset_z = _grid_offset(n_reuse, offset_step)
+            # When we are biased toward the centroid, we want subsequent
+            # placements on the same host to spread LATERALLY along the
+            # host's front edge (perpendicular to the bias direction)
+            # rather than radially in/out (which would push them off the
+            # top or back into the wall). Build a perpendicular unit
+            # vector (perp_x, perp_z); for unbiased hosts (centroid bias
+            # = 0) we fall back to the original world-axis grid pattern.
             _picked = False
             _placement_y = (fy if furn_cat == "floor"
                             else fy + _FURNITURE_HEIGHT_M.get(furn_cat, _DEFAULT_HEIGHT_M))
+            _bias_mag_used = (bias_x * bias_x + bias_z * bias_z) ** 0.5
+            if _bias_mag_used > 1e-3:
+                _ux, _uz = bias_x / _bias_mag_used, bias_z / _bias_mag_used
+                perp_x, perp_z = -_uz, _ux
+            else:
+                perp_x, perp_z = 1.0, 0.0
+            offset_x, offset_z = bias_x, bias_z
             for k in range(n_reuse, n_reuse + 13):
-                _gx, _gz = _grid_offset(k, offset_step)
-                cand_dx = bias_x + _gx
-                cand_dz = bias_z + _gz
+                if _bias_mag_used > 1e-3:
+                    # Lateral spread: signed integer index → ±k * step
+                    # along the perpendicular axis. (0, +1, -1, +2, -2…)
+                    if k == 0:
+                        _lat = 0.0
+                    else:
+                        _step_n = (k + 1) // 2
+                        _lat = _step_n * offset_step * (1 if k % 2 == 1 else -1)
+                    cand_dx = bias_x + _lat * perp_x
+                    cand_dz = bias_z + _lat * perp_z
+                else:
+                    _gx, _gz = _grid_offset(k, offset_step)
+                    cand_dx = _gx
+                    cand_dz = _gz
                 if poly and not _point_in_polygon(fx + cand_dx, fz + cand_dz, poly):
                     continue
                 if furn_cat != "floor" and not _fits_on_top(furn_cat, obj_cat, cand_dx, cand_dz):
                     continue
-                # Generic overlap guard: ensure no existing instance (native
-                # or earlier placement in this run) sits at the same XZ +
-                # similar Y. Without this we'd happily land a mug on top of
-                # a native plate when only the category-aware check ran.
+                # Generic overlap guard. Use a per-object radius so the
+                # lateral spacing (~step) never lands EXACTLY at the
+                # rejection boundary: radius = obj_half + 4 cm safety.
                 cand_xyz = (fx + cand_dx, _placement_y, fz + cand_dz)
-                if _any_instance_within(instances, cand_xyz, radius_xz=0.20, y_tol=0.30):
+                _overlap_r = max(
+                    0.20,
+                    _OBJECT_FOOTPRINT_HALF_M.get(obj_cat, _DEFAULT_OBJ_HALF_M) + 0.06,
+                )
+                if _any_instance_within(instances, cand_xyz,
+                                         radius_xz=_overlap_r, y_tol=0.30):
                     continue
                 offset_x, offset_z = cand_dx, cand_dz
                 n_reuse = k
@@ -812,7 +913,7 @@ def main() -> None:
                 )
                 continue
 
-            host_reuse_count[host_key] = n_reuse + 1
+            host_reuse_count[host_key] = host_reuse_count.get(host_key, 0) + 1
             used_host_keys.add(host_key)
 
             if furn_cat == "floor":
