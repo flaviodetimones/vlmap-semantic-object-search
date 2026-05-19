@@ -166,6 +166,16 @@ prompt_valid_scene_id() {
     done
 }
 
+# Heatmap mode is fixed to postprocessed for interactive runs.
+prompt_heatmap_mode() {
+    SELECTED_HEATMAP_MODE="postprocessed"
+}
+
+# Room-first staging is fixed ON for object queries.
+prompt_room_first() {
+    SELECTED_ROOM_FIRST="1"
+}
+
 sync_labelme_room_map_if_available() {
     local scene="$1"
     local scene_name
@@ -590,6 +600,147 @@ run_testing_menu() {
     done
 }
 
+run_ros_capture_menu() {
+    local CAPTURES_ROOT=/shared/captures
+    local HEATMAPS_ROOT=/shared/heatmaps
+    while true; do
+        echo ""
+        echo "  ┌─────────────────────────────────────────────────────┐"
+        echo "  │       Build VLMap from ROS / Gazebo capture         │"
+        echo "  ├─────────────────────────────────────────────────────┤"
+        echo "  │  l) List available captures                         │"
+        echo "  │  m) Build VLMap from a capture                      │"
+        echo "  │  h) Dump per-category heatmaps for tfg-ros          │"
+        echo "  │  b) Back                                            │"
+        echo "  └─────────────────────────────────────────────────────┘"
+        echo -n "  Select: "
+        read -r cap_opt
+        case "$cap_opt" in
+            l|L)
+                echo ""
+                echo "  Captures under $CAPTURES_ROOT:"
+                if [ -d "$CAPTURES_ROOT" ]; then
+                    find "$CAPTURES_ROOT" -mindepth 2 -maxdepth 2 -type d | sort | sed 's|^|    |'
+                else
+                    echo "    (directory not mounted)"
+                fi
+                ;;
+            m|M)
+                echo ""
+                if [ ! -d "$CAPTURES_ROOT" ]; then
+                    echo "  $CAPTURES_ROOT does not exist inside this container."
+                    echo "  Mount the shared volume in docker-compose for tfg-sim."
+                    continue
+                fi
+                echo "  Available captures:"
+                local -a runs=()
+                while IFS= read -r run; do
+                    runs+=("$run")
+                done < <(find "$CAPTURES_ROOT" -mindepth 2 -maxdepth 2 -type d | sort)
+                if [ ${#runs[@]} -eq 0 ]; then
+                    echo "    (no captures yet — run option 4 in tfg-ros menu first)"
+                    continue
+                fi
+                local idx=0
+                for run in "${runs[@]}"; do
+                    echo "    [$idx] $run"
+                    idx=$((idx + 1))
+                done
+                echo -n "  Select index (default 0): "
+                read -r sel
+                sel=${sel:-0}
+                if ! [[ "$sel" =~ ^[0-9]+$ ]] || [ "$sel" -ge "${#runs[@]}" ]; then
+                    echo "  Invalid index."
+                    continue
+                fi
+                local CAP_DIR="${runs[$sel]}"
+                local PARENT_DIR
+                local SCENE_INDEX=0
+                PARENT_DIR=$(dirname "$CAP_DIR")
+                # scene_id within the parent dir: alphabetical position of CAP_DIR
+                SCENE_INDEX=$(find "$PARENT_DIR" -mindepth 1 -maxdepth 1 -type d | sort | grep -nFx "$CAP_DIR" | cut -d: -f1)
+                SCENE_INDEX=$((SCENE_INDEX - 1))
+                echo ""
+                echo "  Capture        : $CAP_DIR"
+                echo "  Parent (Hydra) : $PARENT_DIR"
+                echo "  scene_id       : $SCENE_INDEX"
+                echo ""
+                echo "  HSR Asus Xtion intrinsics (640x480, fov 1.047 rad)."
+                echo "  ROS REP-103 axes (X forward, Y left, Z up)."
+                echo ""
+                echo "► Building VLMap (this may take several minutes — LSeg + CLIP)..."
+                cd /workspace/third_party/vlmaps
+                python application/create_map.py \
+                    "data_paths.vlmaps_data_dir=$PARENT_DIR" \
+                    "scene_id=$SCENE_INDEX" \
+                    '+map_config.cam_calib_mat=[554,0,320,0,554,240,0,0,1]' \
+                    '+map_config.pose_info.camera_height=1.2' \
+                    '+map_config.pose_info.base_forward_axis=[1,0,0]' \
+                    '+map_config.pose_info.base_left_axis=[0,1,0]' \
+                    '+map_config.pose_info.base_up_axis=[0,0,1]' \
+                    '+map_config.pose_info.base2cam_rot=[0,0,1,-1,0,0,0,-1,0]'
+                if [ -f "$CAP_DIR/vlmap/vlmaps.h5df" ]; then
+                    echo ""
+                    echo "  ✓ VLMap written: $CAP_DIR/vlmap/vlmaps.h5df"
+                    echo "  Next: option 'h' to dump per-category heatmaps for tfg-ros."
+                fi
+                ;;
+            h|H)
+                echo ""
+                if [ ! -d "$CAPTURES_ROOT" ]; then
+                    echo "  $CAPTURES_ROOT not mounted."
+                    continue
+                fi
+                local -a built=()
+                while IFS= read -r v; do
+                    built+=("$(dirname "$v")")
+                done < <(find "$CAPTURES_ROOT" -mindepth 3 -maxdepth 4 -name "vlmaps.h5df" | sort)
+                if [ ${#built[@]} -eq 0 ]; then
+                    echo "  No VLMaps built yet (look for vlmaps.h5df). Use 'm' first."
+                    continue
+                fi
+                echo "  Captures with a built VLMap:"
+                local idx=0
+                for d in "${built[@]}"; do
+                    echo "    [$idx] $d"
+                    idx=$((idx + 1))
+                done
+                echo -n "  Select index (default 0): "
+                read -r sel
+                sel=${sel:-0}
+                if ! [[ "$sel" =~ ^[0-9]+$ ]] || [ "$sel" -ge "${#built[@]}" ]; then
+                    echo "  Invalid index."
+                    continue
+                fi
+                local CAP_DIR="${built[$sel]}"
+                local WORLD
+                WORLD=$(basename "$(dirname "$CAP_DIR")")
+                echo -n "  Categories (space separated, default: mug bottle laptop chair sofa): "
+                read -r cats
+                cats=${cats:-mug bottle laptop chair sofa}
+                local OUT_DIR="$HEATMAPS_ROOT/$WORLD"
+                echo ""
+                echo "► Dumping heatmaps to $OUT_DIR ..."
+                cd /workspace
+                # shellcheck disable=SC2086
+                python -m vlmap_ros_export.cli \
+                    --data-dir "$CAP_DIR" \
+                    --output-dir "$OUT_DIR" \
+                    --categories $cats
+                echo ""
+                echo "  ✓ Heatmaps written. Use them from tfg-ros with"
+                echo "       heatmap_dir:=$OUT_DIR"
+                ;;
+            b|B)
+                break
+                ;;
+            *)
+                echo "  Invalid option."
+                ;;
+        esac
+    done
+}
+
 while true; do
     echo ""
     echo "┌─────────────────────────────────────────────────────┐"
@@ -597,6 +748,7 @@ while true; do
     echo "├─────────────────────────────────────────────────────┤"
     echo "│  1) VLMaps pipeline                  [default]      │"
     echo "│  2) Other tools (GPU, Jupyter, deps, shell, ...)    │"
+    echo "│  3) Build VLMap from ROS Gazebo capture             │"
     echo "│  q) Quit                                            │"
     echo "└─────────────────────────────────────────────────────┘"
     echo -n "  Select an option (default 1): "
@@ -606,6 +758,9 @@ while true; do
     case "$opcion" in
         2)
             run_other_menu
+            ;;
+        3)
+            run_ros_capture_menu
             ;;
         q|Q)
             echo ""
@@ -651,17 +806,20 @@ while true; do
                 echo "  │  c) Collect dataset                             │"
                 echo "  │  m) Create VLMap          (scene_id required)   │"
                 echo "  │  i) Index map             (scene_id required)   │"
-                echo "  │  l) Interactive LLM navigation       [default]  │"
-                echo "  │  x) LLM navigation + room exploration           │"
-                echo "  │  e) Interactive executor navigation             │"
-                echo "  │  t) Testing / evaluation submenu                │"
-                echo "  │  g) Generate obstacle map image                 │"
+                echo "  │  x) LLM navigation + room exploration [default] │"
                 echo "  │  n) Label rooms (LabelMe → room_map)            │"
                 echo "  │  b) Back                                        │"
                 echo "  └─────────────────────────────────────────────────┘"
-                echo -n "  Select (default l): "
+                echo -n "  Select (default x): "
                 read -r sub
-                sub=${sub:-l}
+                sub=${sub:-x}
+                case "$sub" in
+                    r|R|s|S|c|C|m|M|i|I|x|X|n|N|b|B) ;;
+                    *)
+                        echo "  Invalid option."
+                        continue
+                        ;;
+                esac
 
                 case "$sub" in
                     r|R)
@@ -923,13 +1081,17 @@ while true; do
                         fi
                         scene="$SELECTED_SCENE_ID"
                         sync_labelme_room_map_if_available "$scene"
+                        prompt_heatmap_mode
+                        prompt_room_first
                         echo ""
-                        echo "► Launching interactive LLM navigation (scene $scene)  [$DS_LABEL]..."
+                        echo "► Launching interactive LLM navigation (scene $scene, heatmap=$SELECTED_HEATMAP_MODE, room_first=$SELECTED_ROOM_FIRST)  [$DS_LABEL]..."
                         echo "  Type instructions at the prompt. Type 'quit' to stop."
                         echo ""
                         cd /workspace/third_party/vlmaps
-                        python "$APP/interactive_object_nav.py" \
-                            data_paths="$DATA_PATHS" scene_id="$scene" $NAV_EXTRA
+                        VLMAPS_HEATMAP_MODE="$SELECTED_HEATMAP_MODE" \
+                        VLMAPS_ROOM_FIRST="$SELECTED_ROOM_FIRST" \
+                            python "$APP/interactive_object_nav.py" \
+                                data_paths="$DATA_PATHS" scene_id="$scene" $NAV_EXTRA
                         ;;
                     x|X)
                         echo ""
@@ -990,12 +1152,16 @@ while true; do
                         read -r scan_dedup_radius
                         scan_dedup_radius=${scan_dedup_radius:-1.5}
                         sync_labelme_room_map_if_available "$scene"
+                        prompt_heatmap_mode
+                        prompt_room_first
                         echo ""
-                        echo "► Launching LLM navigation with room exploration (scene $scene)  [$DS_LABEL]..."
+                        echo "► Launching LLM navigation with room exploration (scene $scene, heatmap=$SELECTED_HEATMAP_MODE, room_first=$SELECTED_ROOM_FIRST)  [$DS_LABEL]..."
                         echo "  LabelMe room_map is used automatically when available."
                         echo "  Type instructions at the prompt. Type 'quit' to stop."
                         echo ""
                         cd /workspace/third_party/vlmaps
+                        VLMAPS_HEATMAP_MODE="$SELECTED_HEATMAP_MODE" \
+                        VLMAPS_ROOM_FIRST="$SELECTED_ROOM_FIRST" \
                         VLMAPS_ROOM_EXPLORATION=1 \
                         VLMAPS_UI_COMPACT=1 \
                         VLMAPS_UI_TILE=1 \
@@ -1043,12 +1209,17 @@ while true; do
                         read -r policy_mode
                         policy_mode=${policy_mode:-hybrid}
                         echo ""
-                        echo "► Launching interactive executor navigation (scene $scene, policy=$policy_mode)  [$DS_LABEL]..."
+                        prompt_heatmap_mode
+                        prompt_room_first
+                        echo "► Launching interactive executor navigation (scene $scene, policy=$policy_mode, heatmap=$SELECTED_HEATMAP_MODE, room_first=$SELECTED_ROOM_FIRST)  [$DS_LABEL]..."
                         echo "  Type instructions at the prompt. Type 'quit' to stop."
                         echo ""
                         cd /workspace/third_party/vlmaps
-                        VLMAPS_POLICY_MODE="$policy_mode" python "$APP/interactive_object_nav_executor.py" \
-                            data_paths="$DATA_PATHS" scene_id="$scene" $NAV_EXTRA
+                        VLMAPS_HEATMAP_MODE="$SELECTED_HEATMAP_MODE" \
+                        VLMAPS_ROOM_FIRST="$SELECTED_ROOM_FIRST" \
+                        VLMAPS_POLICY_MODE="$policy_mode" \
+                            python "$APP/interactive_object_nav_executor.py" \
+                                data_paths="$DATA_PATHS" scene_id="$scene" $NAV_EXTRA
                         ;;
                     t|T)
                         run_testing_menu

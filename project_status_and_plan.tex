@@ -33,7 +33,7 @@
 \normalsize VLMaps + YOLOE + Habitat-Sim \,$\cdot$\, HSSD como dataset principal\\
 Extensión futura: ROS\,1 Noetic + Toyota HSR}
 \author{Mario García Blasco}
-\date{22 de abril de 2026}
+\date{19 de mayo de 2026}
 
 \begin{document}
 
@@ -3217,6 +3217,77 @@ HSR (simulado o físico). El acoplamiento se reduce a goals 2D y observaciones.}
         respaldo al punto cercano al objeto. La detección de 0,40--0,79 sigue
         siendo sólo un disparador; el éxito continúa requiriendo confirmación
         cercana con el umbral alto.
+\end{enumerate}
+
+\subsection*{18--19 de mayo de 2026 --- Cierre operativo de room-first, YOLOE y acercamiento robusto}
+
+\begin{enumerate}
+  \item \textbf{\textit{Room-first} obligatorio para consultas de objeto}: la
+        opción interactiva deja de preguntar si se desea entrar primero en una
+        habitación. Para instrucciones del tipo
+        \textit{``go to the kitchen and find the bottle''} o
+        \textit{``go to bedroom 1 and find a book''}, la habitación explícita
+        se fija como restricción dura y el objetivo de habitación aislado se
+        elimina de la lista de objetivos. La búsqueda del objeto usa esa
+        habitación como \emph{stage} inicial y realiza una única exploración
+        dentro de ella.
+  \item \textbf{Normalización de lenguaje natural}: se añaden alias de objetos
+        y habitaciones en español e inglés, incluyendo errores frecuentes de
+        escritura. Esto permite resolver \texttt{cocina} como
+        \texttt{kitchen}, \texttt{botella} como \texttt{bottle} y expresiones
+        como \texttt{bedroom 1} como la instancia exacta
+        \texttt{bedroom\_1}. La decisión de habitación y la categoría visual de
+        YOLOE quedan separadas: la habitación restringe el espacio de búsqueda;
+        el objeto canónico controla el detector.
+  \item \textbf{Exploración única sin reintentos ocultos}: si se agota el
+        circuito de puntos de la habitación sin confirmar el objeto, la
+        instrucción termina. Se desactivan las rutas alternativas globales y
+        los segundos barridos que antes podían hacer parecer que el sistema
+        ``volvía a intentarlo'' fuera del flujo esperado.
+  \item \textbf{Uso explícito de VLMaps dentro de la habitación}: para objetos
+        pequeños ausentes del VLMap se consultan las categorías soporte
+        estimadas por el LLM y una lista defensiva de muebles
+        (\texttt{shelf}, \texttt{table}, \texttt{desk}, \texttt{counter},
+        \texttt{cabinet}, etc.). Los heatmaps se recortan por la habitación
+        LabelMe; si el recorte estricto elimina un mueble situado en frontera,
+        se recuperan componentes cuya pertenencia Voronoi coincide con la
+        habitación objetivo. La exploración se centra entonces alrededor de
+        esos soportes; si no hay evidencia útil, se cubre la región navegable.
+  \item \textbf{YOLOE persistente precargado}: la sesión de bajo umbral de
+        YOLOE empieza a cargarse mientras el robot navega hacia la habitación.
+        Al comenzar la exploración se reutiliza esa sesión en vez de bloquear
+        el flujo cargando el modelo al llegar. La confirmación alta se carga
+        sólo cuando es necesaria, manteniendo separado el umbral de aviso
+        (\texttt{0.40}) del umbral final (\texttt{0.80}).
+  \item \textbf{Seguimiento visual con caja persistente}: si YOLOE detecta el
+        objeto y luego falla durante unos pocos frames, el robot conserva la
+        última caja válida en pantalla y puede seguir avanzando o corrigiendo
+        orientación durante una ventana corta. Esto corrige el caso observado
+        con \texttt{book}: el detector parpadeaba entre 0.44 y 0.68 de
+        confianza y el robot se detenía antes de aumentar la escala aparente
+        del objeto.
+  \item \textbf{Acercamiento alternativo cuando la línea recta queda bloqueada}:
+        si el servo visual frontal no alcanza confirmación porque hay un mueble
+        u obstáculo delante, se proyecta la última línea visual hasta la zona
+        del objetivo y se generan \emph{standoffs} navegables alrededor. El
+        ranking prioriza el punto alcanzable más cercano al objetivo, no el de
+        mayor holgura, prueba más ángulos alrededor de la detección y permite
+        línea libre hasta unos centímetros antes del objetivo para no descartar
+        objetos apoyados sobre muebles. Tras llegar al standoff alternativo, el
+        robot se orienta explícitamente hacia la celda visual antes de volver a
+        confirmar con YOLOE.
+  \item \textbf{No bloquear zonas por falsos negativos parciales}: una
+        detección baja no confirmada ya no se guarda como zona falsa que excluya
+        futuras muestras de exploración. El circuito continúa, pero sin
+        penalizar la zona: esto evita romper la exploración cuando el objeto
+        existe pero YOLOE aún no ha alcanzado el umbral final.
+  \item \textbf{Estado operativo}: el caso de botella en cocina queda como
+        \emph{happy path} validado. El caso de libro en dormitorio expuso el
+        problema de detección intermitente y motivó los cambios anteriores. El
+        siguiente paso experimental es repetir esos dos casos y añadir objetos
+        pequeños adicionales en diferentes soportes para medir: éxito, número
+        de acercamientos, distancia final al soporte y número de falsos
+        disparos.
 \end{enumerate}
 
 \end{document}
