@@ -15,5 +15,6 @@ catkin_package(
 
 catkin_install_python(PROGRAMS
   scripts/vlmap_semantic_server_node
+  scripts/publish_room_context.py
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )

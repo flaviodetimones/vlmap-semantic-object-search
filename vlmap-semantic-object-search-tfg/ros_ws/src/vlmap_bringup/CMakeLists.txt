@@ -17,6 +17,7 @@ catkin_install_python(PROGRAMS
   scripts/hsr_sensor_visualizer.py
   scripts/hsr_stack_check
   scripts/mock_move_base_node
+  scripts/ros_contract_smoke_test.py
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
 

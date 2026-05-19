@@ -1,21 +1,43 @@
 <launch>
-  <!-- Use the standard ROS keyboard teleop, remapped to the official HSR
-       Gazebo command topic. -->
-  <arg name="cmd_vel_topic" default="/hsrb/command_velocity"/>
-  <arg name="speed" default="0.25"/>
-  <arg name="turn" default="0.70"/>
-  <arg name="repeat_rate" default="0.0"/>
-  <arg name="key_timeout" default="0.6"/>
+  <!--
+    Custom WASD teleop for the simulated HSR base.
 
-  <node pkg="teleop_twist_keyboard"
-        type="teleop_twist_keyboard.py"
+      w / s : forward / backward
+      a / d : turn left / right
+      q / e : diagonal forward-right / forward-left
+      z / c : diagonal backward-right / backward-left
+      x     : EMERGENCY STOP (zero twist)
+      r / f : ± linear speed
+      t / g : ± angular speed
+      v     : print current speeds
+      p     : quit
+
+    The standard ``teleop_twist_keyboard.py`` (uses i/j/k/l and publishes
+    angular components on letter combos) is intentionally NOT used here:
+    it confused the HSR base controller and made the arm/joints jitter
+    under unintended angular commands.
+  -->
+  <arg name="cmd_vel_topic" default="/hsrb/command_velocity"/>
+  <!-- Conservative defaults so the arm does not jitter under teleop. -->
+  <arg name="linear_speed" default="0.15"/>
+  <arg name="angular_speed" default="0.40"/>
+  <arg name="max_linear_speed" default="0.30"/>
+  <arg name="max_angular_speed" default="0.60"/>
+  <arg name="publish_rate_hz" default="10.0"/>
+
+  <!-- Runs in the foreground of the terminal that launched this file, since
+       the teleop reads raw keystrokes. To use it: open a second
+       `docker exec -it tfg-ros menu` and pick the teleop option. -->
+  <node pkg="vlmap_bringup"
+        type="hsr_keyboard_teleop.py"
         name="hsr_keyboard_teleop"
-        output="screen">
-    <param name="speed" value="$(arg speed)"/>
-    <param name="turn" value="$(arg turn)"/>
-    <param name="repeat_rate" value="$(arg repeat_rate)"/>
-    <param name="key_timeout" value="$(arg key_timeout)"/>
-    <remap from="/cmd_vel" to="$(arg cmd_vel_topic)"/>
-    <remap from="cmd_vel" to="$(arg cmd_vel_topic)"/>
+        output="screen"
+        required="true">
+    <param name="cmd_vel_topic" value="$(arg cmd_vel_topic)"/>
+    <param name="linear_speed" value="$(arg linear_speed)"/>
+    <param name="angular_speed" value="$(arg angular_speed)"/>
+    <param name="max_linear_speed" value="$(arg max_linear_speed)"/>
+    <param name="max_angular_speed" value="$(arg max_angular_speed)"/>
+    <param name="publish_rate_hz" value="$(arg publish_rate_hz)"/>
   </node>
 </launch>

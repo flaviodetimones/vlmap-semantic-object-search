@@ -1,0 +1,19 @@
+# Request an object verification pass using the current robot sensors.
+#
+# The verifier may execute locally or forward the request to an external worker
+# (for example tfg-sim through rosbridge). Empty topic fields mean "use node
+# defaults".
+string object_class
+string request_id
+string rgb_topic
+string depth_topic
+string camera_info_topic
+string point_cloud_topic
+string metadata
+float32 timeout_s
+---
+bool success
+bool found
+string request_id
+string message
+string metadata

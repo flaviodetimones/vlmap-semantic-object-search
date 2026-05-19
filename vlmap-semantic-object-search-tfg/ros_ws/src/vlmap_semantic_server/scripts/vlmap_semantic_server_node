@@ -17,9 +17,19 @@ import sys
 
 import numpy as np
 import rospy
+from geometry_msgs.msg import Pose, PoseArray
+from nav_msgs.msg import MapMetaData, OccupancyGrid
 from std_msgs.msg import String
 
-from vlmap_semantic_server import VoronoiRoomProvider, load_room_centroids
+from vlmap_semantic_server import (
+    DynamicRoomContext,
+    VoronoiRoomProvider,
+    extract_top_candidates,
+    load_dynamic_room_context,
+    load_heatmap_array,
+    load_room_centroids,
+    normalize_to_occupancy,
+)
 from vlmap_msgs.srv import QueryRoom, QueryRoomResponse, ResolveRoom, ResolveRoomResponse
 
 
@@ -53,11 +63,16 @@ def main() -> None:
     rospy.init_node("vlmap_semantic_server", anonymous=False)
     occupancy_path = rospy.get_param("~occupancy_path", "")
     centroid_path = rospy.get_param("~room_centroids_path", "")
+    room_context_topic = rospy.get_param("~room_context_topic", "/vlmap/room_context")
+    heatmap_dir = rospy.get_param("~heatmap_dir", "")
+    map_frame = rospy.get_param("~map_frame", "map")
+    candidates_n = int(rospy.get_param("~candidates_n", 5))
     resolution = float(rospy.get_param("~map_resolution", 0.05))
     origin_x = float(rospy.get_param("~map_origin_x", 0.0))
     origin_y = float(rospy.get_param("~map_origin_y", 0.0))
     room_provider = None
     room_count = 0
+    state = {"dynamic_context": None, "context_error": ""}
     if occupancy_path and centroid_path:
         try:
             occupancy = _load_occupancy_map(occupancy_path)
@@ -72,7 +87,32 @@ def main() -> None:
         except Exception as exc:
             rospy.logwarn("[vlmap_semantic_server] failed to load room labeler inputs: %s", exc)
 
+    def _on_room_context(msg: String) -> None:
+        try:
+            ctx = load_dynamic_room_context(
+                msg.data,
+                resolution=resolution,
+                origin_x=origin_x,
+                origin_y=origin_y,
+            )
+        except Exception as exc:
+            state["context_error"] = str(exc)
+            rospy.logwarn("[vlmap_semantic_server] invalid dynamic room context: %s", exc)
+            return
+        state["dynamic_context"] = ctx
+        state["context_error"] = ""
+        rospy.loginfo(
+            "[vlmap_semantic_server] loaded dynamic room context (%d room(s)) from %s",
+            len(ctx.list_rooms()),
+            room_context_topic,
+        )
+
     def _handle_query_room(req):
+        dynamic_context: DynamicRoomContext | None = state["dynamic_context"]
+        if dynamic_context is not None and dynamic_context.is_available():
+            rooms, scores = dynamic_context.rank_rooms_for_category(req.category)
+            if rooms:
+                return QueryRoomResponse(rooms=rooms, scores=scores)
         if room_provider is None:
             return QueryRoomResponse(rooms=[], scores=[])
         rooms = list(room_provider.list_rooms())
@@ -98,6 +138,13 @@ def main() -> None:
         )
 
     def _handle_resolve_room(req):
+        dynamic_context: DynamicRoomContext | None = state["dynamic_context"]
+        if dynamic_context is not None and dynamic_context.is_available():
+            resolved = dynamic_context.resolve_room_name(req.room)
+            pose = dynamic_context.resolve_room_pose(req.room)
+            if resolved and pose is not None:
+                x, y = pose
+                return ResolveRoomResponse(found=True, room_id=resolved, x=float(x), y=float(y))
         if room_provider is None:
             return ResolveRoomResponse(found=False, room_id="", x=0.0, y=0.0)
         resolved = room_provider.resolve_room_name(req.room)
@@ -111,13 +158,73 @@ def main() -> None:
         y = origin_y + (float(row) + 0.5) * resolution
         return ResolveRoomResponse(found=True, room_id=resolved, x=float(x), y=float(y))
 
-    rospy.Service("/vlmap/query_room", QueryRoom, _handle_query_room)
+    heatmap_pub = rospy.Publisher("/vlmap/heatmap", OccupancyGrid, queue_size=1, latch=True)
+    candidates_pub = rospy.Publisher("/vlmap/candidates", PoseArray, queue_size=1, latch=True)
+
+    def _publish_heatmap_and_candidates(category: str) -> None:
+        if not heatmap_dir:
+            return
+        arr = load_heatmap_array(heatmap_dir, category)
+        if arr is None:
+            rospy.logdebug("[vlmap_semantic_server] no heatmap for '%s' under %s", category, heatmap_dir)
+            return
+        now = rospy.Time.now()
+
+        grid = OccupancyGrid()
+        grid.header.stamp = now
+        grid.header.frame_id = map_frame
+        info = MapMetaData()
+        info.resolution = float(resolution)
+        info.width = int(arr.shape[1])
+        info.height = int(arr.shape[0])
+        info.origin.position.x = float(origin_x)
+        info.origin.position.y = float(origin_y)
+        info.origin.orientation.w = 1.0
+        grid.info = info
+        grid.data = normalize_to_occupancy(arr).flatten().tolist()
+        heatmap_pub.publish(grid)
+
+        candidates = extract_top_candidates(
+            arr, candidates_n, resolution, origin_x, origin_y
+        )
+        pose_array = PoseArray()
+        pose_array.header.stamp = now
+        pose_array.header.frame_id = map_frame
+        for x, y, _score in candidates:
+            pose = Pose()
+            pose.position.x = x
+            pose.position.y = y
+            pose.orientation.w = 1.0
+            pose_array.poses.append(pose)
+        candidates_pub.publish(pose_array)
+        rospy.loginfo(
+            "[vlmap_semantic_server] published heatmap + %d candidate(s) for '%s'",
+            len(candidates),
+            category,
+        )
+
+    def _handle_query_room_and_visualize(req):
+        response = _handle_query_room(req)
+        try:
+            _publish_heatmap_and_candidates(req.category)
+        except Exception as exc:  # noqa: BLE001 - never crash the service on viz
+            rospy.logwarn("[vlmap_semantic_server] heatmap publish failed: %s", exc)
+        return response
+
+    rospy.Service("/vlmap/query_room", QueryRoom, _handle_query_room_and_visualize)
     rospy.Service("/vlmap/resolve_room", ResolveRoom, _handle_resolve_room)
+    rospy.Subscriber(room_context_topic, String, _on_room_context, queue_size=1)
     rospy.loginfo("[vlmap_semantic_server] skeleton ready - Sprint 1/2 bridge")
+    if heatmap_dir:
+        rospy.loginfo("[vlmap_semantic_server] heatmap dir: %s", heatmap_dir)
     pub = rospy.Publisher("/vlmap/heartbeat", String, queue_size=10)
     rate = rospy.Rate(1.0)
     while not rospy.is_shutdown():
-        pub.publish(String(data=f"vlmap_semantic_server alive rooms={room_count}"))
+        mode = "dynamic" if state["dynamic_context"] is not None else "voronoi"
+        live_rooms = room_count
+        if state["dynamic_context"] is not None:
+            live_rooms = len(state["dynamic_context"].list_rooms())
+        pub.publish(String(data=f"vlmap_semantic_server alive mode={mode} rooms={live_rooms}"))
         rate.sleep()
 
 

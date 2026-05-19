@@ -1,17 +1,161 @@
 #!/usr/bin/env python3
-"""Sprint 1 stub for the YOLOE verifier node."""
+"""Bridge object verification requests to an external worker."""
+
+from __future__ import annotations
+
+import json
+from threading import Condition
+import uuid
 
 import rospy
+from sensor_msgs.msg import CameraInfo, Image, PointCloud2
 from std_msgs.msg import String
+from vlmap_msgs.srv import VerifyObject, VerifyObjectResponse
+
+from yoloe_verifier import (
+    build_verification_request_payload,
+    decode_verification_result_payload,
+)
+
+
+def _msg_stamp_dict(msg) -> dict:
+    stamp = getattr(getattr(msg, "header", None), "stamp", None)
+    if stamp is None:
+        return {}
+    return {"secs": int(stamp.secs), "nsecs": int(stamp.nsecs)}
 
 
 def main() -> None:
     rospy.init_node("yoloe_verifier", anonymous=False)
-    rospy.loginfo("[yoloe_verifier] skeleton ready - Sprint 1")
+    rgb_topic = rospy.get_param("~rgb_topic", "/hsrb/head_rgbd_sensor/rgb/image_rect_color")
+    depth_topic = rospy.get_param(
+        "~depth_topic", "/hsrb/head_rgbd_sensor/depth_registered/image_rect_raw"
+    )
+    camera_info_topic = rospy.get_param(
+        "~camera_info_topic", "/hsrb/head_rgbd_sensor/rgb/camera_info"
+    )
+    point_cloud_topic = rospy.get_param(
+        "~point_cloud_topic", "/hsrb/head_rgbd_sensor/depth_registered/rectified_points"
+    )
+    request_topic = rospy.get_param("~request_topic", "/vlmap/verification/request")
+    result_topic = rospy.get_param("~result_topic", "/vlmap/verification/result")
+    service_name = rospy.get_param("~service_name", "/vlmap/verify_object")
+    default_timeout_s = float(rospy.get_param("~timeout_s", 5.0))
+
     pub = rospy.Publisher("/vlmap/heartbeat", String, queue_size=10)
+    request_pub = rospy.Publisher(request_topic, String, queue_size=10)
+    state = {
+        "latest_rgb": None,
+        "latest_depth": None,
+        "latest_camera_info": None,
+        "latest_point_cloud": None,
+        "results": {},
+    }
+    cond = Condition()
+
+    def _on_rgb(msg: Image) -> None:
+        state["latest_rgb"] = _msg_stamp_dict(msg)
+
+    def _on_depth(msg: Image) -> None:
+        state["latest_depth"] = _msg_stamp_dict(msg)
+
+    def _on_camera_info(msg: CameraInfo) -> None:
+        state["latest_camera_info"] = _msg_stamp_dict(msg)
+
+    def _on_point_cloud(msg: PointCloud2) -> None:
+        state["latest_point_cloud"] = _msg_stamp_dict(msg)
+
+    def _on_result(msg: String) -> None:
+        try:
+            payload = decode_verification_result_payload(msg.data)
+        except Exception as exc:
+            rospy.logwarn("[yoloe_verifier] ignoring invalid result payload: %s", exc)
+            return
+        with cond:
+            state["results"][payload["request_id"]] = payload
+            cond.notify_all()
+
+    def _handle_verify(req: VerifyObject) -> VerifyObjectResponse:
+        request_id = str(req.request_id or uuid.uuid4().hex)
+        timeout_s = float(req.timeout_s or default_timeout_s)
+        metadata = {}
+        text = str(req.metadata or "").strip()
+        if text:
+            try:
+                metadata = json.loads(text)
+            except json.JSONDecodeError:
+                metadata = {"raw_metadata": text}
+        metadata.update(
+            {
+                "latest_rgb_stamp": state["latest_rgb"],
+                "latest_depth_stamp": state["latest_depth"],
+                "latest_camera_info_stamp": state["latest_camera_info"],
+                "latest_point_cloud_stamp": state["latest_point_cloud"],
+            }
+        )
+        payload = build_verification_request_payload(
+            request_id=request_id,
+            object_class=req.object_class,
+            rgb_topic=req.rgb_topic or rgb_topic,
+            depth_topic=req.depth_topic or depth_topic,
+            camera_info_topic=req.camera_info_topic or camera_info_topic,
+            point_cloud_topic=req.point_cloud_topic or point_cloud_topic,
+            metadata=metadata,
+        )
+        request_pub.publish(String(data=json.dumps(payload, sort_keys=True)))
+
+        deadline = rospy.Time.now().to_sec() + max(0.1, timeout_s)
+        with cond:
+            while request_id not in state["results"]:
+                remaining = deadline - rospy.Time.now().to_sec()
+                if remaining <= 0.0:
+                    return VerifyObjectResponse(
+                        success=False,
+                        found=False,
+                        request_id=request_id,
+                        message="Timed out waiting for external verification result.",
+                        metadata=json.dumps(
+                            {
+                                "request_topic": request_topic,
+                                "result_topic": result_topic,
+                                "object_class": req.object_class,
+                            },
+                            sort_keys=True,
+                        ),
+                    )
+                cond.wait(timeout=remaining)
+            result = state["results"].pop(request_id)
+        return VerifyObjectResponse(
+            success=bool(result["success"]),
+            found=bool(result["found"]),
+            request_id=request_id,
+            message=str(result["message"]),
+            metadata=json.dumps(result["metadata"], sort_keys=True),
+        )
+
+    rospy.Subscriber(rgb_topic, Image, _on_rgb, queue_size=1)
+    rospy.Subscriber(depth_topic, Image, _on_depth, queue_size=1)
+    rospy.Subscriber(camera_info_topic, CameraInfo, _on_camera_info, queue_size=1)
+    rospy.Subscriber(point_cloud_topic, PointCloud2, _on_point_cloud, queue_size=1)
+    rospy.Subscriber(result_topic, String, _on_result, queue_size=10)
+    rospy.Service(service_name, VerifyObject, _handle_verify)
+    rospy.loginfo(
+        "[yoloe_verifier] bridge ready service=%s request=%s result=%s",
+        service_name,
+        request_topic,
+        result_topic,
+    )
     rate = rospy.Rate(1.0)
     while not rospy.is_shutdown():
-        pub.publish(String(data="yoloe_verifier alive"))
+        pub.publish(
+            String(
+                data=(
+                    "yoloe_verifier alive "
+                    f"rgb={'yes' if state['latest_rgb'] else 'no'} "
+                    f"depth={'yes' if state['latest_depth'] else 'no'}"
+                )
+            )
+        )
         rate.sleep()
 
 

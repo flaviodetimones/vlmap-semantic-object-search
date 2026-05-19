@@ -1,0 +1,50 @@
+<?xml version="1.0"?>
+<!--
+  Full VLMap capture session: HSR + teleop keyboard + capture node + RViz.
+
+  Choose the world via `world` arg: "small_house" (default) or "wrs".
+  Output goes to /shared/captures/<world>/<run_id>/.
+
+  Quick start (inside tfg-ros):
+      roslaunch vlmap_bringup vlmap_capture_session.launch world:=small_house run_id:=run01
+-->
+<launch>
+  <arg name="world" default="small_house"/>
+  <arg name="run_id" default="run01"/>
+  <arg name="output_root" default="/shared/captures"/>
+  <arg name="min_distance_m" default="0.20"/>
+  <arg name="min_angle_rad" default="0.35"/>
+  <arg name="use_rviz" default="true"/>
+
+  <!-- 1. Bring up the requested world + HSR.
+       posture_profile=sensor tucks the arm so it does not occlude the RGB-D
+       view and does not dangle around while driving. -->
+  <include if="$(eval arg('world') == 'small_house')"
+           file="$(find vlmap_bringup)/launch/hsr_gazebo_small_house.launch">
+    <arg name="use_rviz" value="false"/>
+  </include>
+  <include if="$(eval arg('world') == 'wrs')"
+           file="$(find vlmap_bringup)/launch/hsr_gazebo_wrs.launch">
+    <arg name="use_rviz" value="false"/>
+  </include>
+
+  <!-- 2. Teleop is intentionally NOT included here. The HSR keyboard teleop
+       reads raw stdin and conflicts with roslaunch's foreground terminal,
+       so it lives on its own launch. Open a SECOND
+       `docker exec -it tfg-ros menu` and pick the teleop option to drive
+       the robot. -->
+
+  <!-- 3. Capture node. -->
+  <node pkg="vlmap_capture" type="vlmap_capture_node"
+        name="vlmap_capture" output="screen">
+    <param name="output_root" value="$(arg output_root)"/>
+    <param name="world_name" value="$(arg world)"/>
+    <param name="run_id" value="$(arg run_id)"/>
+    <param name="min_distance_m" value="$(arg min_distance_m)"/>
+    <param name="min_angle_rad" value="$(arg min_angle_rad)"/>
+  </node>
+
+  <!-- 4. RViz pre-configured to watch /map + camera + TF. -->
+  <node if="$(arg use_rviz)" pkg="rviz" type="rviz" name="rviz_capture"
+        args="-d $(find vlmap_bringup)/rviz/hsr_sensors.rviz" required="false"/>
+</launch>

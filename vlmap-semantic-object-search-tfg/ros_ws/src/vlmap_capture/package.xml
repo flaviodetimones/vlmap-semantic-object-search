@@ -1,0 +1,24 @@
+<?xml version="1.0"?>
+<package format="2">
+  <name>vlmap_capture</name>
+  <version>0.1.0</version>
+  <description>
+    Capture HSR head_rgbd_sensor frames + map-frame pose to disk in the layout
+    consumed by third_party/vlmaps VLMapBuilder (rgb/*.png, depth/*.npy,
+    poses.txt). Runs in tfg-ros without any torch/CLIP dependency; the heavy
+    VLMap build itself happens offline in tfg-sim.
+  </description>
+  <maintainer email="mgarciablasco26@gmail.com">Mario Garcia Blasco</maintainer>
+  <license>MIT</license>
+
+  <buildtool_depend>catkin</buildtool_depend>
+
+  <depend>rospy</depend>
+  <depend>std_msgs</depend>
+  <depend>std_srvs</depend>
+  <depend>sensor_msgs</depend>
+  <depend>geometry_msgs</depend>
+  <depend>tf2_ros</depend>
+  <depend>cv_bridge</depend>
+  <depend>message_filters</depend>
+</package>

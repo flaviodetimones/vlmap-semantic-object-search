@@ -14,6 +14,7 @@
   <arg name="use_move_base" default="false"/>
   <arg name="occupancy_path" default=""/>
   <arg name="room_centroids_path" default=""/>
+  <arg name="heatmap_dir" default=""/>
   <arg name="pose_path" default=""/>
   <arg name="map_resolution" default="0.05"/>
   <arg name="map_origin_x" default="0.0"/>
@@ -32,9 +33,11 @@
         name="vlmap_semantic_server" output="screen">
     <param name="occupancy_path" value="$(arg occupancy_path)"/>
     <param name="room_centroids_path" value="$(arg room_centroids_path)"/>
+    <param name="heatmap_dir" value="$(arg heatmap_dir)"/>
     <param name="map_resolution" value="$(arg map_resolution)"/>
     <param name="map_origin_x" value="$(arg map_origin_x)"/>
     <param name="map_origin_y" value="$(arg map_origin_y)"/>
+    <param name="map_frame" value="$(arg map_frame)"/>
   </node>
 
   <node pkg="vlmap_task_manager" type="vlmap_task_manager_node"

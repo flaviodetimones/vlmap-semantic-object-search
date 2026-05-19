@@ -1,22 +1,24 @@
 cmake_minimum_required(VERSION 3.0.2)
-project(yoloe_verifier)
+project(vlmap_capture)
 
 find_package(catkin REQUIRED COMPONENTS
   rospy
-  sensor_msgs
   std_msgs
+  std_srvs
+  sensor_msgs
+  geometry_msgs
+  tf2_ros
   cv_bridge
-  vlmap_msgs
+  message_filters
 )
 
 catkin_python_setup()
 
 catkin_package(
-  CATKIN_DEPENDS rospy sensor_msgs std_msgs cv_bridge vlmap_msgs
+  CATKIN_DEPENDS rospy std_msgs std_srvs sensor_msgs geometry_msgs tf2_ros cv_bridge message_filters
 )
 
 catkin_install_python(PROGRAMS
-  scripts/yoloe_verifier_node
-  scripts/mock_verify_worker.py
+  scripts/vlmap_capture_node
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )

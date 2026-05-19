@@ -10,7 +10,9 @@ from std_msgs.msg import Float64
 
 
 _PROFILES: Dict[str, Dict[str, float]] = {
-    # Camera-first pose: tuck the arm away so the RGB-D view is actually usable.
+    # Camera-first pose: tuck the arm away AND keep the head looking dead
+    # forward (head_pan=0, head_tilt=0). Anything else makes the RGB-D
+    # capture see the floor instead of the room.
     "sensor": {
         "base_roll_joint": 0.0,
         "arm_lift_joint": 0.0,
@@ -19,7 +21,7 @@ _PROFILES: Dict[str, Dict[str, float]] = {
         "wrist_flex_joint": -1.57,
         "wrist_roll_joint": 0.0,
         "head_pan_joint": 0.0,
-        "head_tilt_joint": -0.42,
+        "head_tilt_joint": 0.0,
     },
     # Compact, visually stable pose for navigation and sensor validation.
     "nav": {
@@ -50,7 +52,9 @@ class HsrPostureKeeper:
     def __init__(self) -> None:
         self.controller_namespace = rospy.get_param("~controller_namespace", "/hsrb")
         self.profile_name = rospy.get_param("~profile", "display")
-        self.rate_hz = float(rospy.get_param("~rate_hz", 2.0))
+        # 10 Hz (was 2 Hz) so the keeper outpaces Gazebo PID oscillations
+        # while the base accelerates / brakes under teleop.
+        self.rate_hz = float(rospy.get_param("~rate_hz", 10.0))
         self._joint_map = _PROFILES.get(self.profile_name, _PROFILES["display"])
         self._publishers = {}
 

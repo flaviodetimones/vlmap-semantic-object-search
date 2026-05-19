@@ -1,0 +1,32 @@
+<?xml version="1.0"?>
+<!--
+  HSR + move_base + VLMap stack on the AWS RoboMaker Small House world.
+
+  Wraps hsr_gazebo_move_base.launch and only overrides the Gazebo world plus a
+  spawn pose that lands the robot in a free area of the house (kitchen entry).
+  All other args (use_rviz, gui, use_rosbridge, ...) keep their defaults from
+  the parent launch and can be overridden on the command line.
+-->
+<launch>
+  <arg name="gui" default="true"/>
+  <arg name="use_rviz" default="true"/>
+  <arg name="use_rosbridge" default="false"/>
+  <arg name="paused" default="false"/>
+
+  <arg name="robot_x" default="-3.5"/>
+  <arg name="robot_y" default="1.0"/>
+  <arg name="robot_z" default="0.05"/>
+  <arg name="robot_yaw" default="0.0"/>
+
+  <include file="$(find vlmap_bringup)/launch/hsr_gazebo_move_base.launch">
+    <arg name="world" value="$(find aws_robomaker_small_house_world)/worlds/small_house.world"/>
+    <arg name="gui" value="$(arg gui)"/>
+    <arg name="use_rviz" value="$(arg use_rviz)"/>
+    <arg name="use_rosbridge" value="$(arg use_rosbridge)"/>
+    <arg name="paused" value="$(arg paused)"/>
+    <arg name="robot_x" value="$(arg robot_x)"/>
+    <arg name="robot_y" value="$(arg robot_y)"/>
+    <arg name="robot_z" value="$(arg robot_z)"/>
+    <arg name="robot_yaw" value="$(arg robot_yaw)"/>
+  </include>
+</launch>

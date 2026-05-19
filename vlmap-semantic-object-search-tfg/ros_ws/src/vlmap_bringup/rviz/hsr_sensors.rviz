@@ -101,7 +101,7 @@ Visualization Manager:
       Class: rviz/PointCloud2
       Color: 255; 255; 255
       Color Transformer: RGB8
-      Enabled: true
+      Enabled: false
       Name: DepthCloud
       Position Transformer: XYZ
       Queue Size: 2
@@ -110,9 +110,9 @@ Visualization Manager:
       Style: Points
       Topic: /hsrb/head_rgbd_sensor/depth_registered/rectified_points
       Use Fixed Frame: true
-      Value: true
+      Value: false
     - Class: rviz/MarkerArray
-      Enabled: true
+      Enabled: false
       Marker Topic: /hsrb/sensor_markers
       Name: SensorMarkers
       Namespaces:
@@ -120,7 +120,7 @@ Visualization Manager:
         wrench_force: true
         wrench_torque: true
       Queue Size: 10
-      Value: true
+      Value: false
   Enabled: true
   Global Options:
     Background Color: 48; 48; 48

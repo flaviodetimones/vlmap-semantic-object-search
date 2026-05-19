@@ -23,10 +23,24 @@ def main() -> None:
     semantic_goal_topic = rospy.get_param("~semantic_goal_topic", "/vlmap/semantic_goal")
     move_base_result_topic = rospy.get_param("~move_base_result_topic", "/move_base/result")
     navigation_result_topic = rospy.get_param("~navigation_result_topic", "/vlmap/navigation_result")
+    orphan_result_ttl_s = float(rospy.get_param("~orphan_result_ttl_s", 1.0))
 
     pub = rospy.Publisher("/vlmap/heartbeat", String, queue_size=10)
     result_pub = rospy.Publisher(navigation_result_topic, String, queue_size=10)
-    state = {"active_goal": None}
+    state = {"active_goal": None, "orphan_result": None}
+
+    def _publish_result(active_goal: ActiveSemanticGoal, status_code: int, status_text: str) -> None:
+        payload = build_navigation_result_payload(
+            active_goal,
+            status_code=status_code,
+            status_text=status_text,
+        )
+        result_pub.publish(String(data=json.dumps(payload, sort_keys=True)))
+        rospy.loginfo(
+            "[vlmap_navigation_result_bridge] published token=%s success=%s",
+            payload["token"],
+            payload["success"],
+        )
 
     def _on_semantic_goal(msg: SemanticGoal) -> None:
         active_goal = active_goal_from_fields(msg.room_id, msg.object_class, msg.metadata)
@@ -42,28 +56,36 @@ def main() -> None:
             active_goal.room_id,
             active_goal.object_class,
         )
+        orphan = state["orphan_result"]
+        if orphan is not None:
+            age_s = (rospy.Time.now() - orphan["stamp"]).to_sec()
+            if age_s <= orphan_result_ttl_s:
+                _publish_result(
+                    active_goal,
+                    status_code=orphan["status_code"],
+                    status_text=orphan["status_text"],
+                )
+                state["active_goal"] = None
+                state["orphan_result"] = None
+            else:
+                state["orphan_result"] = None
 
     def _on_move_base_result(msg: MoveBaseActionResult) -> None:
         active_goal: ActiveSemanticGoal | None = state["active_goal"]
-        if active_goal is None:
-            rospy.logwarn(
-                "[vlmap_navigation_result_bridge] ignoring move_base result without active semantic goal"
-            )
-            return
         status_code = int(msg.status.status)
         if move_base_status_to_success(status_code) is None:
             return
-        payload = build_navigation_result_payload(
-            active_goal,
-            status_code=status_code,
-            status_text=msg.status.text,
-        )
-        result_pub.publish(String(data=json.dumps(payload, sort_keys=True)))
-        rospy.loginfo(
-            "[vlmap_navigation_result_bridge] published token=%s success=%s",
-            payload["token"],
-            payload["success"],
-        )
+        if active_goal is None:
+            state["orphan_result"] = {
+                "stamp": rospy.Time.now(),
+                "status_code": status_code,
+                "status_text": msg.status.text,
+            }
+            rospy.logwarn(
+                "[vlmap_navigation_result_bridge] buffered move_base result without active semantic goal"
+            )
+            return
+        _publish_result(active_goal, status_code=status_code, status_text=msg.status.text)
         state["active_goal"] = None
 
     rospy.Subscriber(semantic_goal_topic, SemanticGoal, _on_semantic_goal, queue_size=10)

@@ -1,0 +1,51 @@
+<?xml version="1.0"?>
+<!--
+  HSR + move_base + VLMap stack on the Toyota WRS 2020 Gazebo world
+  (tmc_wrs_gazebo_worlds). Designed for HSR domestic-task scenarios:
+  multi-room apartment with kitchen, dining, living and tidy-up areas.
+
+  The world (wrs2020.world) is generated at catkin build time from the
+  bundled xacro by tmc_wrs_gazebo_worlds. The TMC proprietary launches
+  (hsrb_gazebo_launch, hsrb_rosnav_config, ...) are intentionally not
+  used — we plug the world into our own hsr_gazebo_move_base.launch.
+
+  Optional flags:
+    spawn_objects    : run the WRS object placer (random YCB objects)
+    spawn_seed       : random seed for object placement (1 = WRS default)
+    per_category     : how many objects per category (default 6)
+    obstacles        : how many obstacle objects (default 4)
+-->
+<launch>
+  <arg name="gui" default="true"/>
+  <arg name="use_rviz" default="true"/>
+  <arg name="use_rosbridge" default="false"/>
+  <arg name="paused" default="false"/>
+
+  <arg name="robot_x" default="-2.1"/>
+  <arg name="robot_y" default="1.2"/>
+  <arg name="robot_z" default="0.0"/>
+  <arg name="robot_yaw" default="-1.57"/>
+
+  <arg name="spawn_objects" default="false"/>
+  <arg name="spawn_seed" default="1"/>
+  <arg name="per_category" default="6"/>
+  <arg name="obstacles" default="4"/>
+  <arg name="per_row" default="6"/>
+
+  <include file="$(find vlmap_bringup)/launch/hsr_gazebo_move_base.launch">
+    <arg name="world" value="$(find tmc_wrs_gazebo_worlds)/worlds/wrs2020.world"/>
+    <arg name="gui" value="$(arg gui)"/>
+    <arg name="use_rviz" value="$(arg use_rviz)"/>
+    <arg name="use_rosbridge" value="$(arg use_rosbridge)"/>
+    <arg name="paused" value="$(arg paused)"/>
+    <arg name="robot_x" value="$(arg robot_x)"/>
+    <arg name="robot_y" value="$(arg robot_y)"/>
+    <arg name="robot_z" value="$(arg robot_z)"/>
+    <arg name="robot_yaw" value="$(arg robot_yaw)"/>
+  </include>
+
+  <node if="$(arg spawn_objects)"
+        pkg="tmc_wrs_gazebo_worlds" type="spawn_objects" name="wrs_spawn_objects"
+        args="--seed $(arg spawn_seed) --percategory $(arg per_category) --obstacles $(arg obstacles) --perrow $(arg per_row)"
+        output="screen"/>
+</launch>

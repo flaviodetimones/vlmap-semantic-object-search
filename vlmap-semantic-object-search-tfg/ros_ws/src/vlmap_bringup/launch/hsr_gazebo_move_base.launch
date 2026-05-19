@@ -20,7 +20,10 @@
   <arg name="rviz_config" default="$(find vlmap_bringup)/rviz/hsr_navigation.rviz"/>
   <arg name="use_joint_state_publisher" default="false"/>
   <arg name="use_posture_keeper" default="true"/>
-  <arg name="posture_profile" default="display"/>
+  <!-- "sensor" tucks the arm so the head RGB-D view is unobstructed and the
+       arm does not dangle / collide while the base drives. Override on the
+       command line if you need the open "display" pose. -->
+  <arg name="posture_profile" default="sensor"/>
   <arg name="ros_control_config" default="$(find vlmap_bringup)/config/hsr_ros_control.yaml"/>
 
   <arg name="occupancy_path" default="$(find vlmap_bringup)/config/empty_10m_map.json"/>
@@ -69,6 +72,16 @@
         name="hsr_sensor_visualizer" output="screen"/>
   <node pkg="topic_tools" type="relay" name="hsr_wheel_odom_relay"
         args="/$(arg robot_model_name)/wheel_odom /odom"/>
+  <!-- The HSR Gazebo laser plugin publishes to /base_scan (no namespace).
+       Mirror it to /hsrb/base_scan so move_base, RViz and downstream
+       nodes find it where they expect. -->
+  <node pkg="topic_tools" type="relay" name="hsr_base_scan_relay"
+        args="/base_scan /$(arg robot_model_name)/base_scan"/>
+  <!-- The RGB-D plugin stamps frames as head_rgbd_sensor_rgb_frame, but
+       the URDF only declares head_rgbd_sensor_gazebo_frame. Publish the
+       optical alias so RViz Image / DepthCloud displays resolve TF. -->
+  <node pkg="tf" type="static_transform_publisher" name="rgbd_optical_alias"
+        args="0 0 0 0 0 0 head_rgbd_sensor_gazebo_frame head_rgbd_sensor_rgb_frame 100"/>
   <node pkg="tf" type="static_transform_publisher" name="map_to_odom"
         args="0 0 0 0 0 0 map odom 100"/>
   <node if="$(arg use_static_base_tf)" pkg="tf" type="static_transform_publisher" name="odom_to_static_hsrb_base"

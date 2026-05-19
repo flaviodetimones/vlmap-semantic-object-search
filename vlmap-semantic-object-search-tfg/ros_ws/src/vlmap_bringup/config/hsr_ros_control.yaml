@@ -9,11 +9,13 @@ gazebo_ros_control:
     base_roll_joint: {p: 300.0, i: 0.0, d: 20.0}
     head_pan_joint: {p: 120.0, i: 0.0, d: 8.0}
     head_tilt_joint: {p: 120.0, i: 0.0, d: 8.0}
-    arm_lift_joint: {p: 220.0, i: 0.0, d: 14.0}
-    arm_flex_joint: {p: 180.0, i: 0.0, d: 12.0}
-    arm_roll_joint: {p: 80.0, i: 0.0, d: 5.0}
-    wrist_flex_joint: {p: 80.0, i: 0.0, d: 5.0}
-    wrist_roll_joint: {p: 60.0, i: 0.0, d: 4.0}
+    # Higher D (damping) on arm joints to absorb base-motion
+    # disturbances during teleop without oscillating.
+    arm_lift_joint: {p: 220.0, i: 0.0, d: 40.0}
+    arm_flex_joint: {p: 180.0, i: 0.0, d: 35.0}
+    arm_roll_joint: {p: 80.0, i: 0.0, d: 15.0}
+    wrist_flex_joint: {p: 80.0, i: 0.0, d: 15.0}
+    wrist_roll_joint: {p: 60.0, i: 0.0, d: 12.0}
 
 base_velocity_controller:
   type: diff_drive_controller/DiffDriveController
@@ -22,7 +24,7 @@ base_velocity_controller:
   right_wheel:
     - base_r_drive_wheel_joint
   publish_rate: 30.0
-  cmd_vel_timeout: 0.35
+  cmd_vel_timeout: 0.5
   enable_odom_tf: true
   odom_frame_id: odom
   base_frame_id: base_footprint
@@ -33,15 +35,17 @@ base_velocity_controller:
   linear:
     x:
       has_velocity_limits: true
-      max_velocity: 0.45
+      max_velocity: 0.30
       has_acceleration_limits: true
-      max_acceleration: 0.8
+      # Lower acceleration so the arm/head do not get inertial kicks
+      # when starting/stopping under teleop.
+      max_acceleration: 0.30
   angular:
     z:
       has_velocity_limits: true
-      max_velocity: 0.8
+      max_velocity: 0.60
       has_acceleration_limits: true
-      max_acceleration: 1.2
+      max_acceleration: 0.50
 
 base_roll_controller:
   type: position_controllers/JointPositionController
@@ -61,24 +65,24 @@ head_tilt_controller:
 arm_lift_controller:
   type: position_controllers/JointPositionController
   joint: arm_lift_joint
-  pid: {p: 220.0, i: 0.0, d: 14.0}
+  pid: {p: 220.0, i: 0.0, d: 40.0}
 
 arm_flex_controller:
   type: position_controllers/JointPositionController
   joint: arm_flex_joint
-  pid: {p: 180.0, i: 0.0, d: 12.0}
+  pid: {p: 180.0, i: 0.0, d: 35.0}
 
 arm_roll_controller:
   type: position_controllers/JointPositionController
   joint: arm_roll_joint
-  pid: {p: 80.0, i: 0.0, d: 5.0}
+  pid: {p: 80.0, i: 0.0, d: 15.0}
 
 wrist_flex_controller:
   type: position_controllers/JointPositionController
   joint: wrist_flex_joint
-  pid: {p: 80.0, i: 0.0, d: 5.0}
+  pid: {p: 80.0, i: 0.0, d: 15.0}
 
 wrist_roll_controller:
   type: position_controllers/JointPositionController
   joint: wrist_roll_joint
-  pid: {p: 60.0, i: 0.0, d: 4.0}
+  pid: {p: 60.0, i: 0.0, d: 12.0}

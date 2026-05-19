@@ -35,6 +35,7 @@ RUN apt-get update && apt-get install -y \
     libxcb-render-util0 \
     libxcb-xinerama0 \
     libxcb-xkb1 \
+    libxcb-cursor0 \
     libxkbcommon-x11-0 \
     && rm -rf /var/lib/apt/lists/*
 
@@ -46,17 +47,17 @@ RUN wget -q https://github.com/conda-forge/miniforge/releases/latest/download/Mi
 
 # Create tfg env: habitat-sim 0.3.1 requires Python >=3.9,<3.10
 # withbullet: enables physics; no headless flag so OpenGL viewer works via X11
-RUN conda create -n tfg habitat-sim=0.3.1 withbullet \
+RUN conda create -n tfg python=3.9 pip habitat-sim=0.3.1 withbullet \
     -c conda-forge -c aihabitat -y \
     && conda clean -afy
 
 # PyTorch with CUDA 12.1
-RUN conda run -n tfg pip install \
+RUN conda run --no-capture-output -n tfg python -m pip install \
     torch torchvision --index-url https://download.pytorch.org/whl/cu121
 
 # Python requirements
 COPY docker/requirements.txt /tmp/requirements.txt
-RUN conda run -n tfg pip install -r /tmp/requirements.txt
+RUN conda run --no-capture-output -n tfg python -m pip install -r /tmp/requirements.txt
 
 # Auto-activate tfg for all bash sessions (interactive and exec)
 RUN conda init bash && echo "conda activate tfg" >> /root/.bashrc

@@ -13,6 +13,7 @@ This node intentionally does *not* depend on Habitat or the VLMaps runtime.
 from __future__ import annotations
 
 import json
+import uuid
 
 from geometry_msgs.msg import PoseStamped
 import rospy
@@ -36,6 +37,7 @@ def _make_pose(x: float, y: float, frame_id: str) -> PoseStamped:
 def main() -> None:
     rospy.init_node("vlmap_task_manager", anonymous=False)
     frame_id = rospy.get_param("~goal_frame", "map")
+    semantic_settle_s = float(rospy.get_param("~semantic_goal_settle_s", 0.05))
     instruction_topic = rospy.get_param("~instruction_topic", "/vlmap/instruction")
     semantic_goal_topic = rospy.get_param("~semantic_goal_topic", "/vlmap/semantic_goal")
     nav_goal_topic = rospy.get_param("~nav_goal_topic", "/move_base_simple/goal")
@@ -92,6 +94,8 @@ def main() -> None:
             "parsed_target": parsed.target,
             "explicit_room": parsed.explicit_room,
             "selected_room": room_id,
+            "navigation_token": uuid.uuid4().hex,
+            "backend": "ros_task_manager",
         }
         if room_score is not None:
             metadata["selected_room_score"] = room_score
@@ -103,6 +107,8 @@ def main() -> None:
         semantic_msg.object_class = parsed.target
         semantic_msg.metadata = json.dumps(metadata, sort_keys=True)
         semantic_pub.publish(semantic_msg)
+        if semantic_settle_s > 0.0:
+            rospy.sleep(semantic_settle_s)
         nav_pub.publish(room_pose)
         rospy.loginfo(
             "[vlmap_task_manager] %r -> room=%s target=%s pose=(%.2f, %.2f)",

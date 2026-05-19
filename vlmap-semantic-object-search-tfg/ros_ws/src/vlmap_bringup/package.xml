@@ -35,4 +35,8 @@
   <exec_depend>std_msgs</exec_depend>
   <exec_depend>topic_tools</exec_depend>
   <exec_depend>visualization_msgs</exec_depend>
+  <exec_depend>aws_robomaker_small_house_world</exec_depend>
+  <exec_depend>tmc_wrs_gazebo_worlds</exec_depend>
+  <exec_depend>turtlebot3_gazebo</exec_depend>
+  <exec_depend>pal_gazebo_worlds</exec_depend>
 </package>

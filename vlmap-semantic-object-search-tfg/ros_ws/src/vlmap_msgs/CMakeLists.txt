@@ -16,6 +16,7 @@ add_service_files(
   FILES
     QueryRoom.srv
     ResolveRoom.srv
+    VerifyObject.srv
 )
 
 generate_messages(
