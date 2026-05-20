@@ -638,36 +638,32 @@ Con esta separación, VLMaps actúa como generador de hipótesis espaciales y no
 \label{fig:flujo_objetos_pequenos}
 \end{figure}
 
-\paragraph{Mejora robusta en cuatro capas.} A partir de las pruebas con objetos pequeños se añadió una mejora específica para evitar dos fallos observados: perder una detección intermitente al acercarse y quedarse bloqueado cuando la línea recta hacia el objeto queda tapada por un mueble. La solución no depende de un único umbral instantáneo de YOLOE, sino de cuatro capas encadenadas. Primero, la exploración se pondera con la evidencia semántica de VLMaps para visitar antes los puntos cercanos a soportes plausibles. Segundo, cada detección visual se guarda como hipótesis espacial con pose, caja, confianza y celda proyectada en el mapa. Tercero, la confirmación usa evidencia temporal: varias detecciones próximas, estables o con caja creciente pueden confirmar mejor que un solo frame aislado. Cuarto, si la aproximación frontal falla, el planificador busca varias vistas navegables alternativas alrededor de la hipótesis visual y vuelve a verificar desde cada una.
+\paragraph{Mejora robusta simplificada.} A partir de las pruebas con objetos pequeños se añadió una mejora específica para evitar un fallo observado con libros y botellas: YOLOE puede detectar el objeto de forma intermitente y perderlo durante uno o varios frames justo cuando el robot empieza a acercarse. La versión final mantiene una arquitectura deliberadamente simple. VLMaps sigue proponiendo puntos de exploración alrededor de soportes plausibles dentro de la habitación; YOLOE confirma el objeto real desde la cámara; y, durante la aproximación, se acumula evidencia temporal en lugar de decidir por un único frame. Se probó una memoria visual proyectada con varias vistas alternativas, pero se descartó como comportamiento por defecto porque complicaba demasiado el circuito de exploración. En su lugar se conserva un único fallback planificado hacia el punto navegable más cercano a la última detección.
 
 \begin{figure}[H]
 \centering
 \resizebox{\linewidth}{!}{%
-\begin{tikzpicture}[node distance=0.8cm and 0.95cm]
-  \node[bloque, minimum width=3.4cm, minimum height=1.05cm] (sem) {1. Prior semántico\\\footnotesize VLMaps + habitación + soportes};
-  \node[bloquen, minimum width=3.4cm, minimum height=1.05cm, right=of sem] (mem) {2. Memoria visual\\\footnotesize pose, caja, confianza, celda};
-  \node[bloquev, minimum width=3.4cm, minimum height=1.05cm, right=of mem] (temp) {3. Evidencia temporal\\\footnotesize estabilidad y crecimiento};
-  \node[bloque, minimum width=3.4cm, minimum height=1.05cm, right=of temp] (multi) {4. Aproximación multivista\\\footnotesize rutas navegables alternativas};
+\begin{tikzpicture}[node distance=0.85cm and 1.0cm]
+  \node[bloque, minimum width=4.0cm, minimum height=1.05cm] (sem) {1. Puntos semánticos\\\footnotesize VLMaps + habitación + soportes};
+  \node[bloquen, minimum width=4.0cm, minimum height=1.05cm, right=of sem] (temp) {2. Confirmación temporal\\\footnotesize varias detecciones, caja estable};
+  \node[bloquev, minimum width=4.0cm, minimum height=1.05cm, right=of temp] (fallback) {3. Fallback simple\\\footnotesize un punto navegable cercano};
 
-  \node[draw=none, fill=none, below=0.55cm of sem, align=center, font=\sffamily\footnotesize, text width=3.8cm] (semTxt) {Ordena puntos de exploración alrededor de muebles activados por el mapa semántico.};
-  \node[draw=none, fill=none, below=0.55cm of mem, align=center, font=\sffamily\footnotesize, text width=3.8cm] (memTxt) {Permite recuperar el objetivo aunque YOLOE parpadee durante unos frames.};
-  \node[draw=none, fill=none, below=0.55cm of temp, align=center, font=\sffamily\footnotesize, text width=3.8cm] (tempTxt) {Evita decidir por un único frame y acumula confianza visual cercana.};
-  \node[draw=none, fill=none, below=0.55cm of multi, align=center, font=\sffamily\footnotesize, text width=3.8cm] (multiTxt) {Si un obstáculo tapa el frente, prueba otros standoff seguros alrededor de la hipótesis.};
+  \node[draw=none, fill=none, below=0.55cm of sem, align=center, font=\sffamily\footnotesize, text width=4.2cm] (semTxt) {Explora cerca de encimeras, mesas, escritorios o estanterías, según el objeto buscado.};
+  \node[draw=none, fill=none, below=0.55cm of temp, align=center, font=\sffamily\footnotesize, text width=4.2cm] (tempTxt) {Tolera parpadeos breves de YOLOE y evita rechazar un libro por perderlo uno o dos frames.};
+  \node[draw=none, fill=none, below=0.55cm of fallback, align=center, font=\sffamily\footnotesize, text width=4.2cm] (fallbackTxt) {Si la aproximación visual no confirma, intenta una única aproximación planificada y vuelve al circuito.};
 
-  \draw[flecha] (sem) -- (mem);
-  \draw[flecha] (mem) -- (temp);
-  \draw[flecha] (temp) -- (multi);
+  \draw[flecha] (sem) -- (temp);
+  \draw[flecha] (temp) -- (fallback);
   \draw[flecha] (sem) -- (semTxt);
-  \draw[flecha] (mem) -- (memTxt);
   \draw[flecha] (temp) -- (tempTxt);
-  \draw[flecha] (multi) -- (multiTxt);
+  \draw[flecha] (fallback) -- (fallbackTxt);
 
-  \node[grupo, fit=(sem) (mem) (temp) (multi) (semTxt) (memTxt) (tempTxt) (multiTxt),
-        label={[anchor=south, font=\sffamily\bfseries\small, text=figAzulBorde]north:sistema robusto de búsqueda y confirmación}] {};
+  \node[grupo, fit=(sem) (temp) (fallback) (semTxt) (tempTxt) (fallbackTxt),
+        label={[anchor=south, font=\sffamily\bfseries\small, text=figAzulBorde]north:sistema simplificado de búsqueda y confirmación}] {};
 \end{tikzpicture}%
 }
-\caption[Mejora robusta en cuatro capas.]{Mejora robusta en cuatro capas para objetos pequeños: prior semántico para elegir vistas, memoria visual para no perder hipótesis, evidencia temporal para confirmar con estabilidad y aproximación multivista para rodear obstáculos.}
-\label{fig:mejora_cuatro_capas}
+\caption[Mejora robusta simplificada.]{Mejora robusta simplificada para objetos pequeños: VLMaps propone puntos cerca de soportes plausibles, YOLOE confirma con evidencia temporal y el planificador mantiene un único fallback navegable antes de continuar la exploración.}
+\label{fig:mejora_simplificada}
 \end{figure}
 
 \subsection*{Verificación visual con YOLOE}
@@ -1058,7 +1054,7 @@ La separación se materializa en dos contenedores independientes (figura~\ref{fi
 
 El objetivo a medio plazo es preparar la integración con el Toyota HSR, un robot móvil doméstico de servicio diseñado para tareas en entornos del hogar. ROS, Gazebo y RViz aportan un entorno robótico más cercano a un robot real y permiten validar la navegación con costes, mapa global, sensores láser y planificadores estándar. Dentro del periodo de prácticas la migración quedó limitada a la preparación inicial del entorno y a su validación funcional; la integración completa de la navegación y la conexión con la capa semántica se aborda ya dentro del TFG.
 
-\paragraph{Trabajo con objetos pequeños.} Otra línea consiste en mejorar la búsqueda de objetos pequeños como botellas, tazas o portátiles. Estos objetos no aparecen de forma fiable en el mapa semántico, pero sí pueden asociarse a muebles y zonas plausibles. La estrategia adoptada es usar el mapa semántico para localizar esas zonas, YOLOE para confirmar el objeto y el razonamiento por habitaciones para acotar dónde buscar. El flujo queda documentado en la figura~\ref{fig:flujo_objetos_pequenos}; la robustez añadida en cuatro capas queda resumida en la figura~\ref{fig:mejora_cuatro_capas} y sirve como base para la posterior integración con ROS.
+\paragraph{Trabajo con objetos pequeños.} Otra línea consiste en mejorar la búsqueda de objetos pequeños como botellas, tazas o portátiles. Estos objetos no aparecen de forma fiable en el mapa semántico, pero sí pueden asociarse a muebles y zonas plausibles. La estrategia adoptada es usar el mapa semántico para localizar esas zonas, YOLOE para confirmar el objeto y el razonamiento por habitaciones para acotar dónde buscar. El flujo queda documentado en la figura~\ref{fig:flujo_objetos_pequenos}; la robustez simplificada queda resumida en la figura~\ref{fig:mejora_simplificada} y sirve como base para la posterior integración con ROS.
 
 \paragraph{Posible validación futura.} Como horizonte más amplio, una vez consolidada la migración a ROS y Gazebo, se plantea una validación más realista con el Toyota HSR simulado. Si las condiciones lo permiten, la misma división modular podría trasladarse a un entorno físico: decisión semántica en una capa y navegación robótica en otra. Estas pruebas quedan fuera del alcance de las prácticas y pertenecen al cierre del TFG.
 
