@@ -7,9 +7,19 @@ import json
 
 from geometry_msgs.msg import PoseStamped, PoseWithCovarianceStamped
 from move_base_msgs.msg import MoveBaseActionResult
+from nav_msgs.msg import Odometry
 import rospy
 from std_msgs.msg import String
 from vlmap_msgs.msg import SemanticGoal
+
+# Pose sources we know how to read, keyed by ~robot_pose_type.
+# All three expose the robot pose at ``.pose.pose`` (Odometry,
+# PoseWithCovarianceStamped) or ``.pose`` (PoseStamped).
+_POSE_MSG_TYPES = {
+    "odom": Odometry,
+    "amcl": PoseWithCovarianceStamped,
+    "pose_stamped": PoseStamped,
+}
 
 from vlmap_task_manager import (
     ActiveSemanticGoal,
@@ -30,7 +40,13 @@ def main() -> None:
     move_base_result_topic = rospy.get_param("~move_base_result_topic", "/move_base/result")
     navigation_result_topic = rospy.get_param("~navigation_result_topic", "/vlmap/navigation_result")
     room_context_topic = rospy.get_param("~room_context_topic", "/vlmap/room_context")
-    robot_pose_topic = rospy.get_param("~robot_pose_topic", "/amcl_pose")
+    # Default to /odom (nav_msgs/Odometry): the hsr_gazebo_move_base launch
+    # publishes wheel odometry there and map->odom is a static identity, so
+    # /odom poses are already in the map frame. Override with ~robot_pose_type
+    # = "amcl" (PoseWithCovarianceStamped) or "pose_stamped" when AMCL exists.
+    robot_pose_topic = rospy.get_param("~robot_pose_topic", "/odom")
+    robot_pose_type = str(rospy.get_param("~robot_pose_type", "odom")).strip().lower()
+    pose_msg_cls = _POSE_MSG_TYPES.get(robot_pose_type, Odometry)
     room_match_max_dist = float(rospy.get_param("~room_match_max_dist", 0.0))  # 0 = no cap
     orphan_result_ttl_s = float(rospy.get_param("~orphan_result_ttl_s", 1.0))
 
@@ -142,9 +158,14 @@ def main() -> None:
     rospy.Subscriber(move_base_result_topic, MoveBaseActionResult, _on_move_base_result, queue_size=10)
     # Latched room context from tfg-sim; one message is enough but stay subscribed.
     rospy.Subscriber(room_context_topic, String, _on_room_context, queue_size=1)
-    # Robot pose: AMCL publishes PoseWithCovarianceStamped; fall back gracefully.
-    rospy.Subscriber(
-        robot_pose_topic, PoseWithCovarianceStamped, _on_robot_pose, queue_size=10
+    # Robot pose source (Odometry by default; AMCL/PoseStamped configurable).
+    # The handler reads .pose.pose for Odometry/PoseWithCovarianceStamped and
+    # .pose for PoseStamped, so the same callback works for all three.
+    rospy.Subscriber(robot_pose_topic, pose_msg_cls, _on_robot_pose, queue_size=10)
+    rospy.loginfo(
+        "[vlmap_navigation_result_bridge] pose source: %s (%s)",
+        robot_pose_topic,
+        pose_msg_cls.__name__,
     )
 
     rate = rospy.Rate(1.0)
