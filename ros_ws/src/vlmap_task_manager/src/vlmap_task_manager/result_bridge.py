@@ -64,6 +64,7 @@ def build_navigation_result_payload(
     status_text: str,
     source: str = "/move_base/result",
     resolved_room: Optional[str] = None,
+    final_pose: Optional[Any] = None,
 ) -> Dict[str, Any]:
     success = move_base_status_to_success(status_code)
     if success is None:
@@ -75,6 +76,16 @@ def build_navigation_result_payload(
             "result_status_code": int(status_code),
         }
     )
+    # Carry the robot's real final pose so tfg-sim can teleport the Habitat
+    # agent there and run YOLOE verification (Phase 4, Option A) without a
+    # second subscription. Accept (x, y) or (x, y, yaw).
+    if final_pose is not None:
+        try:
+            fx, fy = float(final_pose[0]), float(final_pose[1])
+            fyaw = float(final_pose[2]) if len(final_pose) > 2 else 0.0
+            metadata["final_pose"] = {"x": fx, "y": fy, "yaw": fyaw}
+        except (TypeError, IndexError, ValueError):
+            pass
     # Prefer the room derived from the robot's actual final pose (live room
     # context). Fall back to the requested room when no live context is
     # available, and record both so the difference is auditable.

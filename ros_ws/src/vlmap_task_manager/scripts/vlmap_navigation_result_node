@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import math
 
 from geometry_msgs.msg import PoseStamped, PoseWithCovarianceStamped
 from move_base_msgs.msg import MoveBaseActionResult
@@ -77,6 +78,7 @@ def main() -> None:
             status_code=status_code,
             status_text=status_text,
             resolved_room=_resolve_actual_room(),
+            final_pose=state["last_pose"],
         )
         result_pub.publish(String(data=json.dumps(payload, sort_keys=True)))
         rospy.loginfo(
@@ -150,9 +152,14 @@ def main() -> None:
             )
 
     def _on_robot_pose(msg) -> None:
-        # Accept both PoseStamped and PoseWithCovarianceStamped.
+        # Accept Odometry, PoseWithCovarianceStamped and PoseStamped: all expose
+        # the pose at .pose.pose or .pose. Store (x, y, yaw) so the result can
+        # carry the full final pose for tfg-sim's Habitat pose-sync (Phase 4).
         pose = msg.pose.pose if hasattr(msg.pose, "pose") else msg.pose
-        state["last_pose"] = (float(pose.position.x), float(pose.position.y))
+        q = pose.orientation
+        yaw = math.atan2(2.0 * (q.w * q.z + q.x * q.y),
+                         1.0 - 2.0 * (q.y * q.y + q.z * q.z))
+        state["last_pose"] = (float(pose.position.x), float(pose.position.y), float(yaw))
 
     rospy.Subscriber(semantic_goal_topic, SemanticGoal, _on_semantic_goal, queue_size=10)
     rospy.Subscriber(move_base_result_topic, MoveBaseActionResult, _on_move_base_result, queue_size=10)
