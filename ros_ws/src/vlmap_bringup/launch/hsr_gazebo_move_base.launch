@@ -1,0 +1,151 @@
+<?xml version="1.0"?>
+<!--
+  Toyota HSR Gazebo + move_base integration launch.
+
+  This is the HSR-specific counterpart of gazebo_move_base.launch. It keeps the
+  existing simple_diffbot smoke test untouched while wiring the same VLMap ROS
+  contract to an HSR URDF/xacro, HSR topic names and an HSR-sized costmap.
+
+  Required external packages are intentionally not vendored here. Run:
+    rosrun vlmap_bringup hsr_stack_check
+  inside tfg-ros to verify whether the Toyota/HSR simulator packages are
+  installed before launching this file.
+-->
+<launch>
+  <arg name="world" default="$(find gazebo_ros)/worlds/empty.world"/>
+  <arg name="paused" default="false"/>
+  <arg name="gui" default="false"/>
+  <arg name="use_rosbridge" default="true"/>
+  <arg name="use_rviz" default="false"/>
+  <arg name="rviz_config" default="$(find vlmap_bringup)/rviz/hsr_navigation.rviz"/>
+  <arg name="use_joint_state_publisher" default="false"/>
+  <arg name="use_posture_keeper" default="true"/>
+  <!-- "sensor" tucks the arm so the head RGB-D view is unobstructed and the
+       arm does not dangle / collide while the base drives. Override on the
+       command line if you need the open "display" pose. -->
+  <arg name="posture_profile" default="sensor"/>
+  <arg name="ros_control_config" default="$(find vlmap_bringup)/config/hsr_ros_control.yaml"/>
+
+  <arg name="occupancy_path" default="$(find vlmap_bringup)/config/empty_10m_map.json"/>
+  <arg name="room_centroids_path" default="$(find vlmap_bringup)/config/demo_room_centroids.json"/>
+  <arg name="map_resolution" default="0.5"/>
+  <arg name="map_origin_x" default="-5.0"/>
+  <arg name="map_origin_y" default="-5.0"/>
+
+  <arg name="robot_model_name" default="hsrb"/>
+  <arg name="robot_x" default="0.0"/>
+  <arg name="robot_y" default="0.0"/>
+  <arg name="robot_z" default="0.0"/>
+  <arg name="robot_yaw" default="0.0"/>
+  <arg name="base_frame" default="base_footprint"/>
+  <arg name="cmd_vel_topic" default="/hsrb/command_velocity"/>
+  <arg name="raw_cmd_vel_topic" default="/hsrb/command_velocity_raw"/>
+  <arg name="use_cmd_vel_smoother" default="true"/>
+  <arg name="cmd_vel_max_linear" default="0.20"/>
+  <arg name="cmd_vel_max_angular" default="0.16"/>
+  <arg name="cmd_vel_max_linear_accel" default="0.15"/>
+  <arg name="cmd_vel_max_angular_accel" default="0.10"/>
+  <arg name="move_base_params" default="$(find vlmap_bringup)/config/hsr_move_base_params.yaml"/>
+  <arg name="hsr_topics_config" default="$(find vlmap_bringup)/config/hsr_topics.yaml"/>
+  <arg name="use_static_base_tf" default="false"/>
+
+  <include file="$(find gazebo_ros)/launch/empty_world.launch">
+    <arg name="world_name" value="$(arg world)"/>
+    <arg name="paused" value="$(arg paused)"/>
+    <arg name="gui" value="$(arg gui)"/>
+  </include>
+
+  <param name="robot_description"
+         command="$(find xacro)/xacro '$(find hsr_description)/robots/hsrb4s.urdf.xacro'"/>
+  <node pkg="gazebo_ros" type="spawn_model" name="spawn_hsrb" output="screen"
+        args="-urdf -param robot_description -model $(arg robot_model_name) -x $(arg robot_x) -y $(arg robot_y) -z $(arg robot_z) -Y $(arg robot_yaw)"/>
+  <rosparam command="load" ns="/$(arg robot_model_name)" file="$(arg ros_control_config)"/>
+  <node pkg="controller_manager" type="spawner" ns="$(arg robot_model_name)"
+        name="hsr_controller_spawner" output="screen"
+        args="joint_state_controller base_roll_controller head_pan_controller head_tilt_controller arm_lift_controller arm_flex_controller arm_roll_controller wrist_flex_controller wrist_roll_controller"/>
+  <node pkg="robot_state_publisher" type="robot_state_publisher" name="robot_state_publisher"/>
+  <node if="$(arg use_joint_state_publisher)" pkg="joint_state_publisher" type="joint_state_publisher" name="joint_state_publisher"/>
+  <node if="$(arg use_posture_keeper)" pkg="vlmap_bringup" type="hsr_posture_keeper.py"
+        name="hsr_posture_keeper" output="screen">
+    <param name="controller_namespace" value="/$(arg robot_model_name)"/>
+    <param name="profile" value="$(arg posture_profile)"/>
+  </node>
+  <node pkg="topic_tools" type="relay" name="hsr_joint_states_relay"
+        args="/$(arg robot_model_name)/joint_states /joint_states"/>
+  <node pkg="vlmap_bringup" type="hsr_passive_joint_state_publisher.py"
+        name="hsr_passive_joint_state_publisher" output="screen"/>
+  <node pkg="vlmap_bringup" type="hsr_sensor_visualizer.py"
+        name="hsr_sensor_visualizer" output="screen"/>
+  <node pkg="topic_tools" type="relay" name="hsr_wheel_odom_relay"
+        args="/$(arg robot_model_name)/wheel_odom /odom"/>
+  <!-- The HSR Gazebo laser plugin publishes to /base_scan (no namespace).
+       Mirror it to /hsrb/base_scan so move_base, RViz and downstream
+       nodes find it where they expect. -->
+  <node pkg="topic_tools" type="relay" name="hsr_base_scan_relay"
+        args="/base_scan /$(arg robot_model_name)/base_scan"/>
+  <!-- The RGB-D plugin stamps frames as head_rgbd_sensor_rgb_frame, but
+       the URDF only declares head_rgbd_sensor_gazebo_frame. Publish the
+       optical alias so RViz Image / DepthCloud displays resolve TF. -->
+  <node pkg="tf" type="static_transform_publisher" name="rgbd_optical_alias"
+        args="0 0 0 0 0 0 head_rgbd_sensor_gazebo_frame head_rgbd_sensor_rgb_frame 100"/>
+  <node pkg="tf" type="static_transform_publisher" name="map_to_odom"
+        args="0 0 0 0 0 0 map odom 100"/>
+  <node if="$(arg use_static_base_tf)" pkg="tf" type="static_transform_publisher" name="odom_to_static_hsrb_base"
+        args="0 0 0 0 0 0 odom $(arg base_frame) 100"/>
+
+  <rosparam command="load" ns="/vlmap/hsr" file="$(arg hsr_topics_config)"/>
+
+  <group if="$(arg use_rosbridge)">
+    <include file="$(find rosbridge_server)/launch/rosbridge_websocket.launch">
+      <arg name="port" value="9090"/>
+    </include>
+  </group>
+
+  <node pkg="vlmap_semantic_server" type="vlmap_semantic_server_node"
+        name="vlmap_semantic_server" output="screen">
+    <param name="occupancy_path" value="$(arg occupancy_path)"/>
+    <param name="room_centroids_path" value="$(arg room_centroids_path)"/>
+    <param name="map_resolution" value="$(arg map_resolution)"/>
+    <param name="map_origin_x" value="$(arg map_origin_x)"/>
+    <param name="map_origin_y" value="$(arg map_origin_y)"/>
+  </node>
+
+  <node pkg="habitat_ros_bridge" type="habitat_ros_bridge_node"
+        name="map_static_bridge" output="screen">
+    <param name="occupancy_path" value="$(arg occupancy_path)"/>
+    <param name="map_resolution" value="$(arg map_resolution)"/>
+    <param name="map_origin_x" value="$(arg map_origin_x)"/>
+    <param name="map_origin_y" value="$(arg map_origin_y)"/>
+    <param name="base_frame" value="$(arg base_frame)"/>
+    <param name="publish_map" value="true"/>
+    <param name="serve_static_map" value="true"/>
+    <param name="publish_odom" value="false"/>
+    <param name="publish_tf" value="false"/>
+  </node>
+
+  <node pkg="vlmap_task_manager" type="vlmap_task_manager_node"
+        name="vlmap_task_manager" output="screen"/>
+  <node pkg="vlmap_task_manager" type="vlmap_navigation_result_node"
+        name="vlmap_navigation_result_bridge" output="screen"/>
+  <node pkg="yoloe_verifier" type="yoloe_verifier_node"
+        name="yoloe_verifier" output="screen"/>
+
+  <node if="$(arg use_cmd_vel_smoother)" pkg="vlmap_bringup" type="hsr_cmd_vel_smoother.py"
+        name="hsr_cmd_vel_smoother" output="screen">
+    <param name="input_topic" value="$(arg raw_cmd_vel_topic)"/>
+    <param name="output_topic" value="$(arg cmd_vel_topic)"/>
+    <param name="max_linear" value="$(arg cmd_vel_max_linear)"/>
+    <param name="max_angular" value="$(arg cmd_vel_max_angular)"/>
+    <param name="max_linear_accel" value="$(arg cmd_vel_max_linear_accel)"/>
+    <param name="max_angular_accel" value="$(arg cmd_vel_max_angular_accel)"/>
+  </node>
+
+  <rosparam command="load" ns="move_base" file="$(arg move_base_params)"/>
+  <node pkg="move_base" type="move_base" name="move_base" output="screen">
+    <remap if="$(arg use_cmd_vel_smoother)" from="cmd_vel" to="$(arg raw_cmd_vel_topic)"/>
+    <remap unless="$(arg use_cmd_vel_smoother)" from="cmd_vel" to="$(arg cmd_vel_topic)"/>
+  </node>
+
+  <node if="$(arg use_rviz)" pkg="rviz" type="rviz" name="rviz"
+        args="-d $(arg rviz_config)" required="false"/>
+</launch>

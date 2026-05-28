@@ -1,0 +1,165 @@
+#!/usr/bin/env python3
+"""Bridge terminal move_base results into a backend-neutral JSON topic."""
+
+from __future__ import annotations
+
+import json
+
+from geometry_msgs.msg import PoseStamped, PoseWithCovarianceStamped
+from move_base_msgs.msg import MoveBaseActionResult
+import rospy
+from std_msgs.msg import String
+from vlmap_msgs.msg import SemanticGoal
+
+from vlmap_task_manager import (
+    ActiveSemanticGoal,
+    active_goal_from_fields,
+    build_navigation_result_payload,
+    move_base_status_to_success,
+)
+
+try:
+    from vlmap_semantic_server.dynamic_context import load_dynamic_room_context
+except Exception:  # pragma: no cover - package may be absent in minimal stacks
+    load_dynamic_room_context = None
+
+
+def main() -> None:
+    rospy.init_node("vlmap_navigation_result_bridge", anonymous=False)
+    semantic_goal_topic = rospy.get_param("~semantic_goal_topic", "/vlmap/semantic_goal")
+    move_base_result_topic = rospy.get_param("~move_base_result_topic", "/move_base/result")
+    navigation_result_topic = rospy.get_param("~navigation_result_topic", "/vlmap/navigation_result")
+    room_context_topic = rospy.get_param("~room_context_topic", "/vlmap/room_context")
+    robot_pose_topic = rospy.get_param("~robot_pose_topic", "/amcl_pose")
+    room_match_max_dist = float(rospy.get_param("~room_match_max_dist", 0.0))  # 0 = no cap
+    orphan_result_ttl_s = float(rospy.get_param("~orphan_result_ttl_s", 1.0))
+
+    pub = rospy.Publisher("/vlmap/heartbeat", String, queue_size=10)
+    result_pub = rospy.Publisher(navigation_result_topic, String, queue_size=10)
+    state = {
+        "active_goal": None,
+        "orphan_result": None,
+        "room_context": None,      # live DynamicRoomContext or None
+        "last_pose": None,         # (x, y) of the robot's latest pose
+    }
+
+    def _resolve_actual_room():
+        """Derive the room from the robot's latest pose + live context."""
+        ctx = state["room_context"]
+        pose = state["last_pose"]
+        if ctx is None or pose is None:
+            return None
+        cap = room_match_max_dist if room_match_max_dist > 0.0 else None
+        try:
+            return ctx.room_at_pose(pose[0], pose[1], max_distance=cap)
+        except Exception:
+            return None
+
+    def _publish_result(active_goal: ActiveSemanticGoal, status_code: int, status_text: str) -> None:
+        payload = build_navigation_result_payload(
+            active_goal,
+            status_code=status_code,
+            status_text=status_text,
+            resolved_room=_resolve_actual_room(),
+        )
+        result_pub.publish(String(data=json.dumps(payload, sort_keys=True)))
+        rospy.loginfo(
+            "[vlmap_navigation_result_bridge] published token=%s success=%s",
+            payload["token"],
+            payload["success"],
+        )
+
+    def _on_semantic_goal(msg: SemanticGoal) -> None:
+        active_goal = active_goal_from_fields(msg.room_id, msg.object_class, msg.metadata)
+        if active_goal is None:
+            rospy.logwarn(
+                "[vlmap_navigation_result_bridge] semantic goal missing navigation_token"
+            )
+            return
+        state["active_goal"] = active_goal
+        rospy.loginfo(
+            "[vlmap_navigation_result_bridge] tracking token=%s room=%s object=%s",
+            active_goal.token,
+            active_goal.room_id,
+            active_goal.object_class,
+        )
+        orphan = state["orphan_result"]
+        if orphan is not None:
+            age_s = (rospy.Time.now() - orphan["stamp"]).to_sec()
+            if age_s <= orphan_result_ttl_s:
+                _publish_result(
+                    active_goal,
+                    status_code=orphan["status_code"],
+                    status_text=orphan["status_text"],
+                )
+                state["active_goal"] = None
+                state["orphan_result"] = None
+            else:
+                state["orphan_result"] = None
+
+    def _on_move_base_result(msg: MoveBaseActionResult) -> None:
+        active_goal: ActiveSemanticGoal | None = state["active_goal"]
+        status_code = int(msg.status.status)
+        if move_base_status_to_success(status_code) is None:
+            return
+        if active_goal is None:
+            state["orphan_result"] = {
+                "stamp": rospy.Time.now(),
+                "status_code": status_code,
+                "status_text": msg.status.text,
+            }
+            rospy.logwarn(
+                "[vlmap_navigation_result_bridge] buffered move_base result without active semantic goal"
+            )
+            return
+        _publish_result(active_goal, status_code=status_code, status_text=msg.status.text)
+        state["active_goal"] = None
+
+    def _on_room_context(msg: String) -> None:
+        if load_dynamic_room_context is None:
+            rospy.logwarn_once(
+                "[vlmap_navigation_result_bridge] vlmap_semantic_server not importable; "
+                "actual_room will echo the requested room"
+            )
+            return
+        try:
+            state["room_context"] = load_dynamic_room_context(msg.data)
+            rospy.loginfo(
+                "[vlmap_navigation_result_bridge] room context updated (%d rooms)",
+                len(state["room_context"].list_rooms()),
+            )
+        except Exception as exc:  # noqa: BLE001
+            rospy.logwarn(
+                "[vlmap_navigation_result_bridge] bad room context payload: %s", exc
+            )
+
+    def _on_robot_pose(msg) -> None:
+        # Accept both PoseStamped and PoseWithCovarianceStamped.
+        pose = msg.pose.pose if hasattr(msg.pose, "pose") else msg.pose
+        state["last_pose"] = (float(pose.position.x), float(pose.position.y))
+
+    rospy.Subscriber(semantic_goal_topic, SemanticGoal, _on_semantic_goal, queue_size=10)
+    rospy.Subscriber(move_base_result_topic, MoveBaseActionResult, _on_move_base_result, queue_size=10)
+    # Latched room context from tfg-sim; one message is enough but stay subscribed.
+    rospy.Subscriber(room_context_topic, String, _on_room_context, queue_size=1)
+    # Robot pose: AMCL publishes PoseWithCovarianceStamped; fall back gracefully.
+    rospy.Subscriber(
+        robot_pose_topic, PoseWithCovarianceStamped, _on_robot_pose, queue_size=10
+    )
+
+    rate = rospy.Rate(1.0)
+    rospy.loginfo("[vlmap_navigation_result_bridge] ready")
+    while not rospy.is_shutdown():
+        active_goal: ActiveSemanticGoal | None = state["active_goal"]
+        suffix = "idle"
+        if active_goal is not None:
+            suffix = f"tracking token={active_goal.token}"
+        pub.publish(String(data=f"vlmap_navigation_result_bridge alive {suffix}"))
+        rate.sleep()
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except rospy.ROSInterruptException:
+        pass
