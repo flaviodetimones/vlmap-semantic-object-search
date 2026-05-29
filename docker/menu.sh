@@ -4,6 +4,32 @@ export OPENAI_KEY="${OPENAI_KEY:-$OPENAI_API_KEY}"
 APP=/workspace/third_party/vlmaps/application
 DATASET=/workspace/third_party/vlmaps/dataset
 
+is_scene_excluded() {
+    local scene_name="$1"
+    case "$DATASET_TYPE:$scene_name" in
+        hssd:108736884_177263634_4)
+            return 0
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
+iter_scene_names() {
+    if [ ! -d "$SCENES_DIR" ]; then
+        return
+    fi
+
+    while IFS= read -r dir; do
+        local scene_name
+        scene_name=$(basename "$dir")
+        if ! is_scene_excluded "$scene_name"; then
+            echo "$scene_name"
+        fi
+    done < <(find "$SCENES_DIR" -mindepth 1 -maxdepth 1 -type d | sort)
+}
+
 run_other_menu() {
     while true; do
         echo ""
@@ -82,10 +108,10 @@ if torch.cuda.is_available():
 print_scene_list() {
     if [ -d "$SCENES_DIR" ]; then
         i=0
-        while IFS= read -r dir; do
-            echo "    scene_id=$i  →  $(basename "$dir")"
+        while IFS= read -r scene_name; do
+            echo "    scene_id=$i  →  $scene_name"
             i=$((i+1))
-        done < <(find "$SCENES_DIR" -mindepth 1 -maxdepth 1 -type d | sort)
+        done < <(iter_scene_names)
         if [ "$i" -eq 0 ]; then
             echo "    (no scene folders found in $SCENES_DIR)"
         fi
@@ -99,7 +125,7 @@ scene_name_from_id() {
     if [ ! -d "$SCENES_DIR" ]; then
         return 1
     fi
-    find "$SCENES_DIR" -mindepth 1 -maxdepth 1 -type d | sort | sed -n "$((scene_id + 1))p" | xargs -r basename
+    iter_scene_names | sed -n "$((scene_id + 1))p"
 }
 
 scene_count() {
@@ -107,7 +133,7 @@ scene_count() {
         echo 0
         return
     fi
-    find "$SCENES_DIR" -mindepth 1 -maxdepth 1 -type d | sort | wc -l
+    iter_scene_names | wc -l
 }
 
 prompt_valid_scene_id() {
@@ -138,6 +164,43 @@ prompt_valid_scene_id() {
         fi
         echo "  Invalid scene_id '$scene'. Valid range: 0-$max_scene."
     done
+}
+
+# Heatmap mode is fixed to postprocessed for interactive runs.
+prompt_heatmap_mode() {
+    SELECTED_HEATMAP_MODE="postprocessed"
+}
+
+# Room-first staging is fixed ON for object queries.
+prompt_room_first() {
+    SELECTED_ROOM_FIRST="1"
+}
+
+sync_labelme_room_map_if_available() {
+    local scene="$1"
+    local scene_name
+    local anno_dir
+    local label_json
+    local alt_label_json
+
+    scene_name=$(scene_name_from_id "$scene")
+    if [ -z "$scene_name" ]; then
+        return 1
+    fi
+
+    anno_dir="/workspace/annotations/room_labels/$DATASET_TYPE/$scene_name"
+    label_json="$anno_dir/room_labels.json"
+    alt_label_json="$anno_dir/topdown_labeled.json"
+
+    if [ -f "$label_json" ] || [ -f "$alt_label_json" ]; then
+        echo ""
+        echo "► Sincronizando regiones LabelMe con room_map..."
+        python /workspace/tools/convert_room_labelme.py \
+            --dataset-type "$DATASET_TYPE" \
+            --scene-id "$scene" \
+            --voronoi-max-distance-cells 50 \
+            --voronoi-domain-threshold 20
+    fi
 }
 
 run_testing_menu() {
@@ -537,6 +600,147 @@ run_testing_menu() {
     done
 }
 
+run_ros_capture_menu() {
+    local CAPTURES_ROOT=/shared/captures
+    local HEATMAPS_ROOT=/shared/heatmaps
+    while true; do
+        echo ""
+        echo "  ┌─────────────────────────────────────────────────────┐"
+        echo "  │       Build VLMap from ROS / Gazebo capture         │"
+        echo "  ├─────────────────────────────────────────────────────┤"
+        echo "  │  l) List available captures                         │"
+        echo "  │  m) Build VLMap from a capture                      │"
+        echo "  │  h) Dump per-category heatmaps for tfg-ros          │"
+        echo "  │  b) Back                                            │"
+        echo "  └─────────────────────────────────────────────────────┘"
+        echo -n "  Select: "
+        read -r cap_opt
+        case "$cap_opt" in
+            l|L)
+                echo ""
+                echo "  Captures under $CAPTURES_ROOT:"
+                if [ -d "$CAPTURES_ROOT" ]; then
+                    find "$CAPTURES_ROOT" -mindepth 2 -maxdepth 2 -type d | sort | sed 's|^|    |'
+                else
+                    echo "    (directory not mounted)"
+                fi
+                ;;
+            m|M)
+                echo ""
+                if [ ! -d "$CAPTURES_ROOT" ]; then
+                    echo "  $CAPTURES_ROOT does not exist inside this container."
+                    echo "  Mount the shared volume in docker-compose for tfg-sim."
+                    continue
+                fi
+                echo "  Available captures:"
+                local -a runs=()
+                while IFS= read -r run; do
+                    runs+=("$run")
+                done < <(find "$CAPTURES_ROOT" -mindepth 2 -maxdepth 2 -type d | sort)
+                if [ ${#runs[@]} -eq 0 ]; then
+                    echo "    (no captures yet — run option 4 in tfg-ros menu first)"
+                    continue
+                fi
+                local idx=0
+                for run in "${runs[@]}"; do
+                    echo "    [$idx] $run"
+                    idx=$((idx + 1))
+                done
+                echo -n "  Select index (default 0): "
+                read -r sel
+                sel=${sel:-0}
+                if ! [[ "$sel" =~ ^[0-9]+$ ]] || [ "$sel" -ge "${#runs[@]}" ]; then
+                    echo "  Invalid index."
+                    continue
+                fi
+                local CAP_DIR="${runs[$sel]}"
+                local PARENT_DIR
+                local SCENE_INDEX=0
+                PARENT_DIR=$(dirname "$CAP_DIR")
+                # scene_id within the parent dir: alphabetical position of CAP_DIR
+                SCENE_INDEX=$(find "$PARENT_DIR" -mindepth 1 -maxdepth 1 -type d | sort | grep -nFx "$CAP_DIR" | cut -d: -f1)
+                SCENE_INDEX=$((SCENE_INDEX - 1))
+                echo ""
+                echo "  Capture        : $CAP_DIR"
+                echo "  Parent (Hydra) : $PARENT_DIR"
+                echo "  scene_id       : $SCENE_INDEX"
+                echo ""
+                echo "  HSR Asus Xtion intrinsics (640x480, fov 1.047 rad)."
+                echo "  ROS REP-103 axes (X forward, Y left, Z up)."
+                echo ""
+                echo "► Building VLMap (this may take several minutes — LSeg + CLIP)..."
+                cd /workspace/third_party/vlmaps
+                python application/create_map.py \
+                    "data_paths.vlmaps_data_dir=$PARENT_DIR" \
+                    "scene_id=$SCENE_INDEX" \
+                    '+map_config.cam_calib_mat=[554,0,320,0,554,240,0,0,1]' \
+                    '+map_config.pose_info.camera_height=1.2' \
+                    '+map_config.pose_info.base_forward_axis=[1,0,0]' \
+                    '+map_config.pose_info.base_left_axis=[0,1,0]' \
+                    '+map_config.pose_info.base_up_axis=[0,0,1]' \
+                    '+map_config.pose_info.base2cam_rot=[0,0,1,-1,0,0,0,-1,0]'
+                if [ -f "$CAP_DIR/vlmap/vlmaps.h5df" ]; then
+                    echo ""
+                    echo "  ✓ VLMap written: $CAP_DIR/vlmap/vlmaps.h5df"
+                    echo "  Next: option 'h' to dump per-category heatmaps for tfg-ros."
+                fi
+                ;;
+            h|H)
+                echo ""
+                if [ ! -d "$CAPTURES_ROOT" ]; then
+                    echo "  $CAPTURES_ROOT not mounted."
+                    continue
+                fi
+                local -a built=()
+                while IFS= read -r v; do
+                    built+=("$(dirname "$v")")
+                done < <(find "$CAPTURES_ROOT" -mindepth 3 -maxdepth 4 -name "vlmaps.h5df" | sort)
+                if [ ${#built[@]} -eq 0 ]; then
+                    echo "  No VLMaps built yet (look for vlmaps.h5df). Use 'm' first."
+                    continue
+                fi
+                echo "  Captures with a built VLMap:"
+                local idx=0
+                for d in "${built[@]}"; do
+                    echo "    [$idx] $d"
+                    idx=$((idx + 1))
+                done
+                echo -n "  Select index (default 0): "
+                read -r sel
+                sel=${sel:-0}
+                if ! [[ "$sel" =~ ^[0-9]+$ ]] || [ "$sel" -ge "${#built[@]}" ]; then
+                    echo "  Invalid index."
+                    continue
+                fi
+                local CAP_DIR="${built[$sel]}"
+                local WORLD
+                WORLD=$(basename "$(dirname "$CAP_DIR")")
+                echo -n "  Categories (space separated, default: mug bottle laptop chair sofa): "
+                read -r cats
+                cats=${cats:-mug bottle laptop chair sofa}
+                local OUT_DIR="$HEATMAPS_ROOT/$WORLD"
+                echo ""
+                echo "► Dumping heatmaps to $OUT_DIR ..."
+                cd /workspace
+                # shellcheck disable=SC2086
+                python -m vlmap_ros_export.cli \
+                    --data-dir "$CAP_DIR" \
+                    --output-dir "$OUT_DIR" \
+                    --categories $cats
+                echo ""
+                echo "  ✓ Heatmaps written. Use them from tfg-ros with"
+                echo "       heatmap_dir:=$OUT_DIR"
+                ;;
+            b|B)
+                break
+                ;;
+            *)
+                echo "  Invalid option."
+                ;;
+        esac
+    done
+}
+
 while true; do
     echo ""
     echo "┌─────────────────────────────────────────────────────┐"
@@ -544,6 +748,7 @@ while true; do
     echo "├─────────────────────────────────────────────────────┤"
     echo "│  1) VLMaps pipeline                  [default]      │"
     echo "│  2) Other tools (GPU, Jupyter, deps, shell, ...)    │"
+    echo "│  3) Build VLMap from ROS Gazebo capture             │"
     echo "│  q) Quit                                            │"
     echo "└─────────────────────────────────────────────────────┘"
     echo -n "  Select an option (default 1): "
@@ -553,6 +758,9 @@ while true; do
     case "$opcion" in
         2)
             run_other_menu
+            ;;
+        3)
+            run_ros_capture_menu
             ;;
         q|Q)
             echo ""
@@ -598,18 +806,21 @@ while true; do
                 echo "  │  c) Collect dataset                             │"
                 echo "  │  m) Create VLMap          (scene_id required)   │"
                 echo "  │  i) Index map             (scene_id required)   │"
-                echo "  │  l) Interactive LLM navigation       [default]  │"
-                echo "  │  e) Interactive executor navigation             │"
-                echo "  │  t) Testing / evaluation submenu                │"
-                echo "  │  g) Generate obstacle map image                 │"
-                if [ "$DATASET_TYPE" = "mp3d" ]; then
+                echo "  │  x) LLM navigation + room exploration [default] │"
                 echo "  │  n) Label rooms (LabelMe → room_map)            │"
-                fi
+                echo "  │  t) Testing / Evaluation                        │"
                 echo "  │  b) Back                                        │"
                 echo "  └─────────────────────────────────────────────────┘"
-                echo -n "  Select (default l): "
+                echo -n "  Select (default x): "
                 read -r sub
-                sub=${sub:-l}
+                sub=${sub:-x}
+                case "$sub" in
+                    r|R|s|S|c|C|m|M|i|I|x|X|n|N|t|T|b|B) ;;
+                    *)
+                        echo "  Invalid option."
+                        continue
+                        ;;
+                esac
 
                 case "$sub" in
                     r|R)
@@ -635,6 +846,14 @@ while true; do
                         echo ""
                         echo "  ── Step 3 · Interactive LLM navigation ──────────────────────"
                         echo ""
+                        echo "    python $APP/interactive_object_nav.py data_paths=hssd scene_id=0 \\"
+                        echo "        dataset_type=hssd \\"
+                        echo "        scene_dataset_config_file=$HSSD_CFG"
+                        echo ""
+                        echo "    # Same navigation with LabelMe room exploration enabled:"
+                        echo "    VLMAPS_ROOM_EXPLORATION=1 \\"
+                        echo "    VLMAPS_EXPLORE_MAX_POINTS=8 \\"
+                        echo "    VLMAPS_EXPLORE_TIMEOUT_S=60 \\"
                         echo "    python $APP/interactive_object_nav.py data_paths=hssd scene_id=0 \\"
                         echo "        dataset_type=hssd \\"
                         echo "        scene_dataset_config_file=$HSSD_CFG"
@@ -686,6 +905,11 @@ while true; do
                         echo ""
                         echo "    python $APP/interactive_object_nav.py data_paths=docker scene_id=0"
                         echo ""
+                        echo "    # Same navigation with LabelMe room exploration enabled:"
+                        echo "    VLMAPS_ROOM_EXPLORATION=1 VLMAPS_EXPLORE_MAX_POINTS=8 \\"
+                        echo "    VLMAPS_EXPLORE_TIMEOUT_S=60 \\"
+                        echo "    python $APP/interactive_object_nav.py data_paths=docker scene_id=0"
+                        echo ""
                         echo "  ── Step 4 · Interactive executor navigation ────────────────"
                         echo ""
                         echo "    python $APP/interactive_object_nav_executor.py data_paths=docker scene_id=0"
@@ -701,10 +925,10 @@ while true; do
                         echo "  ─────────────────────────────────────────────────"
                         if [ -d "$SCENES_DIR" ]; then
                             i=0
-                            while IFS= read -r dir; do
-                                echo "    scene_id=$i  →  $(basename "$dir")"
+                            while IFS= read -r scene_name; do
+                                echo "    scene_id=$i  →  $scene_name"
                                 i=$((i+1))
-                            done < <(find "$SCENES_DIR" -mindepth 1 -maxdepth 1 -type d | sort)
+                            done < <(iter_scene_names)
                             if [ "$i" -eq 0 ]; then
                                 echo "    (no scene folders found in $SCENES_DIR)"
                             fi
@@ -795,10 +1019,10 @@ while true; do
                         echo "  ─────────────────────────────────────────────────"
                         if [ -d "$SCENES_DIR" ]; then
                             i=0
-                            while IFS= read -r dir; do
-                                echo "    scene_id=$i  →  $(basename "$dir")"
+                            while IFS= read -r scene_name; do
+                                echo "    scene_id=$i  →  $scene_name"
                                 i=$((i+1))
-                            done < <(find "$SCENES_DIR" -mindepth 1 -maxdepth 1 -type d | sort)
+                            done < <(iter_scene_names)
                         else
                             echo "    (data directory not found)"
                         fi
@@ -818,10 +1042,10 @@ while true; do
                         echo "  ─────────────────────────────────────────────────"
                         if [ -d "$SCENES_DIR" ]; then
                             i=0
-                            while IFS= read -r dir; do
-                                echo "    scene_id=$i  →  $(basename "$dir")"
+                            while IFS= read -r scene_name; do
+                                echo "    scene_id=$i  →  $scene_name"
                                 i=$((i+1))
-                            done < <(find "$SCENES_DIR" -mindepth 1 -maxdepth 1 -type d | sort)
+                            done < <(iter_scene_names)
                         else
                             echo "    (data directory not found)"
                         fi
@@ -845,10 +1069,10 @@ while true; do
                         echo "  ─────────────────────────────────────────────────"
                         if [ -d "$SCENES_DIR" ]; then
                             i=0
-                            while IFS= read -r dir; do
-                                echo "    scene_id=$i  →  $(basename "$dir")"
+                            while IFS= read -r scene_name; do
+                                echo "    scene_id=$i  →  $scene_name"
                                 i=$((i+1))
-                            done < <(find "$SCENES_DIR" -mindepth 1 -maxdepth 1 -type d | sort)
+                            done < <(iter_scene_names)
                         else
                             echo "    (data directory not found)"
                         fi
@@ -857,13 +1081,108 @@ while true; do
                             continue
                         fi
                         scene="$SELECTED_SCENE_ID"
+                        sync_labelme_room_map_if_available "$scene"
+                        prompt_heatmap_mode
+                        prompt_room_first
                         echo ""
-                        echo "► Launching interactive LLM navigation (scene $scene)  [$DS_LABEL]..."
+                        echo "► Launching interactive LLM navigation (scene $scene, heatmap=$SELECTED_HEATMAP_MODE, room_first=$SELECTED_ROOM_FIRST)  [$DS_LABEL]..."
                         echo "  Type instructions at the prompt. Type 'quit' to stop."
                         echo ""
                         cd /workspace/third_party/vlmaps
-                        python "$APP/interactive_object_nav.py" \
-                            data_paths="$DATA_PATHS" scene_id="$scene" $NAV_EXTRA
+                        VLMAPS_HEATMAP_MODE="$SELECTED_HEATMAP_MODE" \
+                        VLMAPS_ROOM_FIRST="$SELECTED_ROOM_FIRST" \
+                            python "$APP/interactive_object_nav.py" \
+                                data_paths="$DATA_PATHS" scene_id="$scene" $NAV_EXTRA
+                        ;;
+                    x|X)
+                        echo ""
+                        if [ -z "$OPENAI_API_KEY" ]; then
+                            echo "  WARNING: OPENAI_API_KEY is not set. The script will fail."
+                            echo "  Set it with: export OPENAI_API_KEY=sk-..."
+                        fi
+                        echo "  Available scenes [$DS_LABEL]:"
+                        echo "  ─────────────────────────────────────────────────"
+                        if [ -d "$SCENES_DIR" ]; then
+                            i=0
+                            while IFS= read -r scene_name; do
+                                dir="$SCENES_DIR/$scene_name"
+                                HAS_ROOMS=""
+                                [ -f "$dir/room_map/room_map.npy" ] && HAS_ROOMS=" [room_map manual]"
+                                echo "    scene_id=$i  →  $scene_name$HAS_ROOMS"
+                                i=$((i+1))
+                            done < <(iter_scene_names)
+                        else
+                            echo "    (data directory not found)"
+                        fi
+                        echo ""
+                        if ! prompt_valid_scene_id "scene_id to use" 0; then
+                            continue
+                        fi
+                        scene="$SELECTED_SCENE_ID"
+                        echo -n "  Exploration points per room: auto or number (default auto): "
+                        read -r explore_points_input
+                        explore_points_input=${explore_points_input:-auto}
+                        if [ "$explore_points_input" = "auto" ] || [ "$explore_points_input" = "AUTO" ]; then
+                            explore_points_value="auto"
+                            explore_points_auto=1
+                            explore_points_per_ref=4
+                            explore_min_points=4
+                            explore_max_points_cap=9
+                            explore_reference_area_m2=12.0
+                        else
+                            explore_points_value="$explore_points_input"
+                            explore_points_auto=0
+                            explore_points_per_ref="$explore_points_input"
+                            explore_min_points="$explore_points_input"
+                            explore_max_points_cap="$explore_points_input"
+                            explore_reference_area_m2=8.0
+                        fi
+                        echo -n "  Minimum distance between exploration points in meters (default 0.90): "
+                        read -r explore_point_min_sep
+                        explore_point_min_sep=${explore_point_min_sep:-0.90}
+                        echo -n "  Minimum clearance in cells for preferred candidates (default 2): "
+                        read -r explore_min_clearance
+                        explore_min_clearance=${explore_min_clearance:-2}
+                        echo -n "  Max exploration time in seconds (default 60): "
+                        read -r explore_timeout
+                        explore_timeout=${explore_timeout:-60}
+                        echo -n "  YOLOE low-confidence trigger (default 0.40): "
+                        read -r yoloe_low_thresh
+                        yoloe_low_thresh=${yoloe_low_thresh:-0.40}
+                        echo -n "  Repeated-scan radius in meters (default 1.5): "
+                        read -r scan_dedup_radius
+                        scan_dedup_radius=${scan_dedup_radius:-1.5}
+                        sync_labelme_room_map_if_available "$scene"
+                        prompt_heatmap_mode
+                        prompt_room_first
+                        echo ""
+                        echo "► Launching LLM navigation with room exploration (scene $scene, heatmap=$SELECTED_HEATMAP_MODE, room_first=$SELECTED_ROOM_FIRST)  [$DS_LABEL]..."
+                        echo "  LabelMe room_map is used automatically when available."
+                        echo "  Type instructions at the prompt. Type 'quit' to stop."
+                        echo ""
+                        cd /workspace/third_party/vlmaps
+                        VLMAPS_HEATMAP_MODE="$SELECTED_HEATMAP_MODE" \
+                        VLMAPS_ROOM_FIRST="$SELECTED_ROOM_FIRST" \
+                        VLMAPS_ROOM_EXPLORATION=1 \
+                        VLMAPS_UI_COMPACT=1 \
+                        VLMAPS_UI_TILE=1 \
+                        VLMAPS_EXPLORE_POINTS="$explore_points_value" \
+                        VLMAPS_EXPLORE_POINTS_AUTO="$explore_points_auto" \
+                        VLMAPS_EXPLORE_MAX_POINTS="$explore_points_per_ref" \
+                        VLMAPS_EXPLORE_POINTS_PER_REFERENCE="$explore_points_per_ref" \
+                        VLMAPS_EXPLORE_MIN_POINTS="$explore_min_points" \
+                        VLMAPS_EXPLORE_MAX_POINTS_CAP="$explore_max_points_cap" \
+                        VLMAPS_EXPLORE_REFERENCE_AREA_M2="$explore_reference_area_m2" \
+                        VLMAPS_EXPLORE_POINT_MIN_SEP_M="$explore_point_min_sep" \
+                        VLMAPS_EXPLORE_MIN_CLEARANCE_CELLS="$explore_min_clearance" \
+                        VLMAPS_APPROACH_MIN_CLEARANCE_CELLS="$explore_min_clearance" \
+                        VLMAPS_PLAN_DILATION_ITERS=2 \
+                        VLMAPS_EXPLORE_DEBUG=1 \
+                        VLMAPS_EXPLORE_TIMEOUT_S="$explore_timeout" \
+                        VLMAPS_YOLOE_ROOM_LOW_THRESH="$yoloe_low_thresh" \
+                        VLMAPS_SCAN_DEDUP_RADIUS_M="$scan_dedup_radius" \
+                            python "$APP/interactive_object_nav.py" \
+                                data_paths="$DATA_PATHS" scene_id="$scene" $NAV_EXTRA
                         ;;
                     e|E)
                         echo ""
@@ -875,10 +1194,10 @@ while true; do
                         echo "  ─────────────────────────────────────────────────"
                         if [ -d "$SCENES_DIR" ]; then
                             i=0
-                            while IFS= read -r dir; do
-                                echo "    scene_id=$i  →  $(basename "$dir")"
+                            while IFS= read -r scene_name; do
+                                echo "    scene_id=$i  →  $scene_name"
                                 i=$((i+1))
-                            done < <(find "$SCENES_DIR" -mindepth 1 -maxdepth 1 -type d | sort)
+                            done < <(iter_scene_names)
                         else
                             echo "    (data directory not found)"
                         fi
@@ -891,12 +1210,17 @@ while true; do
                         read -r policy_mode
                         policy_mode=${policy_mode:-hybrid}
                         echo ""
-                        echo "► Launching interactive executor navigation (scene $scene, policy=$policy_mode)  [$DS_LABEL]..."
+                        prompt_heatmap_mode
+                        prompt_room_first
+                        echo "► Launching interactive executor navigation (scene $scene, policy=$policy_mode, heatmap=$SELECTED_HEATMAP_MODE, room_first=$SELECTED_ROOM_FIRST)  [$DS_LABEL]..."
                         echo "  Type instructions at the prompt. Type 'quit' to stop."
                         echo ""
                         cd /workspace/third_party/vlmaps
-                        VLMAPS_POLICY_MODE="$policy_mode" python "$APP/interactive_object_nav_executor.py" \
-                            data_paths="$DATA_PATHS" scene_id="$scene" $NAV_EXTRA
+                        VLMAPS_HEATMAP_MODE="$SELECTED_HEATMAP_MODE" \
+                        VLMAPS_ROOM_FIRST="$SELECTED_ROOM_FIRST" \
+                        VLMAPS_POLICY_MODE="$policy_mode" \
+                            python "$APP/interactive_object_nav_executor.py" \
+                                data_paths="$DATA_PATHS" scene_id="$scene" $NAV_EXTRA
                         ;;
                     t|T)
                         run_testing_menu
@@ -907,12 +1231,13 @@ while true; do
                         echo "  ─────────────────────────────────────────────────"
                         if [ -d "$SCENES_DIR" ]; then
                             i=0
-                            while IFS= read -r dir; do
+                            while IFS= read -r scene_name; do
+                                dir="$SCENES_DIR/$scene_name"
                                 HAS_MAP=""
                                 [ -f "$dir/obstacle_map.png" ] && HAS_MAP=" [map ready]"
-                                echo "    scene_id=$i  →  $(basename "$dir")$HAS_MAP"
+                                echo "    scene_id=$i  →  $scene_name$HAS_MAP"
                                 i=$((i+1))
-                            done < <(find "$SCENES_DIR" -mindepth 1 -maxdepth 1 -type d | sort)
+                            done < <(iter_scene_names)
                         fi
                         echo ""
                         if ! prompt_valid_scene_id "scene_id" 0; then
@@ -923,80 +1248,104 @@ while true; do
                         echo "► Generating obstacle map images for scene $scene  [$DS_LABEL]..."
                         cd /workspace/third_party/vlmaps
                         python "$APP/generate_obstacle_map_png.py" \
-                            data_paths="$DATA_PATHS" scene_id="$scene"
+                            data_paths="$DATA_PATHS" scene_id="$scene" $NAV_EXTRA
                         ;;
                     n|N)
-                        if [ "$DATASET_TYPE" = "hssd" ]; then
-                            echo "  Room labeling not needed for HSSD — annotations are automatic"
-                            echo "  (read from semantics/scenes/<id>.semantic_config.json)."
-                        else
                         echo ""
-                        echo "  ╔═══════════════════════════════════════════════════╗"
-                        echo "  ║           Room Labeling Workflow                  ║"
-                        echo "  ╠═══════════════════════════════════════════════════╣"
-                        echo "  ║  Step 1: Generate obstacle map (option g)         ║"
-                        echo "  ║  Step 2: LabelMe opens → draw room polygons       ║"
-                        echo "  ║  Step 3: Save in LabelMe (Ctrl+S), then close     ║"
-                        echo "  ║  Step 4: Automatic conversion to room_map         ║"
-                        echo "  ╠═══════════════════════════════════════════════════╣"
-                        echo "  ║  TIPS:                                            ║"
-                        echo "  ║  • Use Polygon tool (not Rectangle)               ║"
-                        echo "  ║  • Draw LARGE polygons covering the whole room    ║"
-                        echo "  ║  • Labels: living_room  bedroom  kitchen          ║"
-                        echo "  ║    bathroom  office  hallway  dining_room         ║"
-                        echo "  ║  • Multiple rooms same type: bedroom_1 bedroom_2  ║"
-                        echo "  ╚═══════════════════════════════════════════════════╝"
+                        echo "  ╔══════════════════════════════════════════════════════╗"
+                        echo "  ║        Room labeling workflow (LabelMe)             ║"
+                        echo "  ╠══════════════════════════════════════════════════════╣"
+                        echo "  ║  Esta opción hace el flujo completo:                ║"
+                        echo "  ║  preparar -> abrir LabelMe -> convertir a room_map  ║"
+                        echo "  ║  Tú solo dibujas y guardas.                         ║"
+                        echo "  ╚══════════════════════════════════════════════════════╝"
                         echo ""
-                        echo "  Available scenes:"
+                        echo "  Escenas disponibles [$DS_LABEL]:"
                         echo "  ─────────────────────────────────────────────────"
                         if [ -d "$SCENES_DIR" ]; then
                             i=0
-                            while IFS= read -r dir; do
+                            while IFS= read -r scene_name; do
+                                dir="$SCENES_DIR/$scene_name"
                                 HAS_MAP=""
-                                ( [ -f "$dir/topdown_labeled.png" ] || [ -f "$dir/obstacle_map.png" ] ) && HAS_MAP=" [map ready]"
+                                ( [ -f "$dir/topdown_labeled.png" ] || [ -f "$dir/obstacle_map.png" ] ) && HAS_MAP=" [mapa listo]"
                                 HAS_ROOMS=""
-                                [ -f "$dir/room_map/room_map.npy" ] && HAS_ROOMS=" [rooms labeled]"
-                                echo "    scene_id=$i  →  $(basename "$dir")$HAS_MAP$HAS_ROOMS"
+                                [ -f "$dir/room_map/room_map.npy" ] && HAS_ROOMS=" [room_map manual]"
+                                echo "    scene_id=$i  →  $scene_name$HAS_MAP$HAS_ROOMS"
                                 i=$((i+1))
-                            done < <(find "$SCENES_DIR" -mindepth 1 -maxdepth 1 -type d | sort)
+                            done < <(iter_scene_names)
                         fi
                         echo ""
-                        echo -n "  scene_id (default 0): "
-                        read -r scene
-                        scene=${scene:-0}
-                        SCENE_DIR=$(find "$SCENES_DIR" -mindepth 1 -maxdepth 1 -type d | sort | sed -n "$((scene+1))p")
-                        if [ -z "$SCENE_DIR" ]; then
-                            echo "  Scene not found."
-                        else
-                            MAP_IMG="$SCENE_DIR/topdown_labeled.png"
-                            [ ! -f "$MAP_IMG" ] && MAP_IMG="$SCENE_DIR/obstacle_map.png"
-                            if [ ! -f "$MAP_IMG" ]; then
-                                echo "  Map image not found. Run option 'g' first."
-                            else
-                                LABEL_JSON="$SCENE_DIR/room_map/room_labels.json"
-                                mkdir -p "$SCENE_DIR/room_map"
-                                echo ""
-                                echo "► Opening LabelMe... (draw polygons, Ctrl+S to save, then close)"
-                                echo "  Image: $MAP_IMG"
-                                echo "  Output JSON: $LABEL_JSON"
-                                echo ""
-                                LD_PRELOAD=/opt/conda/envs/tfg/lib/libstdc++.so.6 \
-                                    labelme "$MAP_IMG" \
-                                    --output "$LABEL_JSON" \
-                                    --autosave \
-                                    --nodata
-                                if [ -f "$LABEL_JSON" ]; then
-                                    echo ""
-                                    echo "► Converting LabelMe JSON → room_map..."
-                                    cd /workspace/third_party/vlmaps
-                                    python application/labelme_to_room_map.py \
-                                        --json "$LABEL_JSON" \
-                                        --scene "$SCENE_DIR"
-                                else
-                                    echo "  No JSON saved (LabelMe closed without saving)."
-                                fi
-                            fi
+                        if ! prompt_valid_scene_id "scene_id" 0; then
+                            continue
                         fi
+                        scene="$SELECTED_SCENE_ID"
+                        SCENE_NAME=$(scene_name_from_id "$scene")
+                        if [ -z "$SCENE_NAME" ]; then
+                            echo "  Escena no encontrada."
+                            continue
+                        fi
+                        SCENE_DIR="$SCENES_DIR/$SCENE_NAME"
+                        ANNO_DIR="/workspace/annotations/room_labels/$DATASET_TYPE/$SCENE_NAME"
+                        HOST_ANNO_DIR="/home/mario/tfg/vlmap-semantic-object-search-tfg/annotations/room_labels/$DATASET_TYPE/$SCENE_NAME"
+                        MAP_IMG="$ANNO_DIR/topdown_labeled.png"
+                        LABEL_JSON="$ANNO_DIR/room_labels.json"
+                        ALT_LABEL_JSON="$ANNO_DIR/topdown_labeled.json"
+                        echo ""
+                        echo "  Escena       : $SCENE_NAME"
+                        echo "  Anotaciones  : $ANNO_DIR"
+                        echo "  JSON esperado: $LABEL_JSON"
+                        echo "  JSON alterno : $ALT_LABEL_JSON"
+                        echo ""
+                        echo "► Preparando assets para LabelMe..."
+                        if [ "$DATASET_TYPE" = "hssd" ]; then
+                            python /workspace/tools/prepare_room_labelme.py \
+                                --dataset-type "$DATASET_TYPE" \
+                                --data-paths "$DATA_PATHS" \
+                                --scene-id "$scene" \
+                                --scene-dataset-config-file "$HSSD_CFG" \
+                                --regenerate
+                        else
+                            python /workspace/tools/prepare_room_labelme.py \
+                                --dataset-type "$DATASET_TYPE" \
+                                --data-paths "$DATA_PATHS" \
+                                --scene-id "$scene" \
+                                --regenerate
+                        fi
+                        echo ""
+                        echo "► Asegurando compatibilidad de LabelMe con NumPy..."
+                        python /workspace/tools/ensure_labelme_compat.py
+                        echo ""
+                        if [ ! -f "$MAP_IMG" ]; then
+                            echo "  No se ha podido preparar la imagen de anotación."
+                            continue
+                        fi
+                        echo "► Abriendo LabelMe dentro del contenedor..."
+                        echo "  Dibuja los polígonos, guarda y cierra LabelMe."
+                        echo "  Imagen : $MAP_IMG"
+                        echo "  Salida : $LABEL_JSON"
+                        QT_PLUGIN_PATH=/opt/conda/envs/tfg/lib/python3.9/site-packages/PyQt5/Qt5/plugins \
+                        QT_QPA_PLATFORM_PLUGIN_PATH=/opt/conda/envs/tfg/lib/python3.9/site-packages/PyQt5/Qt5/plugins/platforms \
+                        QT_QPA_PLATFORM=xcb \
+                        LD_PRELOAD=/opt/conda/envs/tfg/lib/libstdc++.so.6 \
+                            labelme "$MAP_IMG" \
+                            --output "$LABEL_JSON" \
+                            --autosave \
+                            --nodata
+                        if [ -f "$LABEL_JSON" ] || [ -f "$ALT_LABEL_JSON" ]; then
+                            echo ""
+                            echo "► Convirtiendo anotación manual a room_map..."
+                            python /workspace/tools/convert_room_labelme.py \
+                                --dataset-type "$DATASET_TYPE" \
+                                --scene-id "$scene" \
+                                --voronoi-max-distance-cells 50 \
+                                --voronoi-domain-threshold 20
+                        else
+                            echo ""
+                            echo "  No se encontró JSON guardado; se omite la conversión."
+                            echo "  Si la ventana no se abrió bien dentro del contenedor,"
+                            echo "  usa este comando en el host y luego vuelve a pulsar 'n':"
+                            echo ""
+                            echo "  labelme \"$HOST_ANNO_DIR/topdown_labeled.png\" -O \"$HOST_ANNO_DIR/room_labels.json\" --autosave --nodata"
                         fi
                         ;;
                     b|B)

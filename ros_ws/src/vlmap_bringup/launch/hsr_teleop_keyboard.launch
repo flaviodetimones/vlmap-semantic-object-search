@@ -1,0 +1,28 @@
+<launch>
+  <!--
+    Standard ROS keyboard teleop for the simulated HSR base.
+
+    Uses teleop_twist_keyboard from ROS Noetic and remaps its cmd_vel output
+    into the same raw topic consumed by the HSR command smoother.
+  -->
+  <arg name="cmd_vel_topic" default="/hsrb/command_velocity_raw"/>
+  <arg name="linear_speed" default="0.25"/>
+  <arg name="angular_speed" default="0.60"/>
+  <arg name="repeat_rate_hz" default="10.0"/>
+  <arg name="key_timeout" default="0.4"/>
+
+  <!-- Runs in the foreground of the terminal that launched this file, since
+       the teleop reads raw keystrokes. To use it: open a second
+       `docker exec -it tfg-ros menu` and pick the teleop option. -->
+  <node pkg="teleop_twist_keyboard"
+        type="teleop_twist_keyboard.py"
+        name="hsr_teleop_twist_keyboard"
+        output="screen"
+        required="true">
+    <remap from="cmd_vel" to="$(arg cmd_vel_topic)"/>
+    <param name="speed" value="$(arg linear_speed)"/>
+    <param name="turn" value="$(arg angular_speed)"/>
+    <param name="repeat_rate" value="$(arg repeat_rate_hz)"/>
+    <param name="key_timeout" value="$(arg key_timeout)"/>
+  </node>
+</launch>

@@ -1,0 +1,32 @@
+{
+  "dataset_type": "hssd",
+  "scene_id": 2,
+  "scene_name": "108736884_177263634_4",
+  "scene_dir_container": "/workspace/data/vlmaps_dataset_hssd/108736884_177263634_4",
+  "annotation_dir_container": "/workspace/annotations/room_labels/hssd/108736884_177263634_4",
+  "annotation_dir_host": "/home/mario/tfg/vlmap-semantic-object-search-tfg/annotations/room_labels/hssd/108736884_177263634_4",
+  "topdown_image_container": "/workspace/annotations/room_labels/hssd/108736884_177263634_4/topdown_labeled.png",
+  "topdown_image_host": "/home/mario/tfg/vlmap-semantic-object-search-tfg/annotations/room_labels/hssd/108736884_177263634_4/topdown_labeled.png",
+  "labelme_json_container": "/workspace/annotations/room_labels/hssd/108736884_177263634_4/room_labels.json",
+  "labelme_json_host": "/home/mario/tfg/vlmap-semantic-object-search-tfg/annotations/room_labels/hssd/108736884_177263634_4/room_labels.json",
+  "scene_dataset_config_file": "/workspace/data/versioned_data/hssd-hab/hssd-hab.scene_dataset_config.json",
+  "instructions": [
+    "Marca solo la zona navegable útil de cada habitación.",
+    "Si dos habitaciones abiertas se mezclan, sepáralas manualmente.",
+    "Usa polígonos grandes y limpios; evita perfilar muebles o paredes con demasiado detalle.",
+    "Puedes usar varias regiones con la misma etiqueta si hay zonas desconectadas."
+  ],
+  "suggested_labels": [
+    "living room",
+    "bedroom",
+    "kitchen",
+    "bathroom",
+    "office",
+    "hallway",
+    "dining room",
+    "laundry room",
+    "closet",
+    "garage"
+  ],
+  "host_labelme_command": "labelme \"/home/mario/tfg/vlmap-semantic-object-search-tfg/annotations/room_labels/hssd/108736884_177263634_4/topdown_labeled.png\" -O \"/home/mario/tfg/vlmap-semantic-object-search-tfg/annotations/room_labels/hssd/108736884_177263634_4/room_labels.json\" --autosave --nodata"
+}

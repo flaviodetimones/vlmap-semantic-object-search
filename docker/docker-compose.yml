@@ -13,6 +13,7 @@ services:
       - ../../data:/workspace/data
       - ../results:/workspace/results
       - ../../vlmaps/vlmaps/lseg/checkpoints:/workspace/third_party/vlmaps/vlmaps/lseg/checkpoints
+      - ../../shared:/shared
       - /tmp/.X11-unix:/tmp/.X11-unix
       - ${HOME}/.Xauthority:/root/.Xauthority:ro
     ports:
@@ -49,6 +50,7 @@ services:
     volumes:
       - ../ros_ws:/ros_ws
       - ..:/workspace
+      - ../../shared:/shared
       - /tmp/.X11-unix:/tmp/.X11-unix
       - ${HOME}/.Xauthority:/root/.Xauthority:ro
     environment:
@@ -57,10 +59,19 @@ services:
       - ROS_MASTER_URI=http://tfg-ros:11311
       - ROS_HOSTNAME=tfg-ros
       - ROS_MODE=${ROS_MODE:-shell}
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=graphics,utility,compute
     ports:
       - "9090:9090"
     stdin_open: true
     tty: true
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
     networks:
       - tfg-net
 

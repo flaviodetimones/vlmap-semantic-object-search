@@ -1,0 +1,28 @@
+<launch>
+  <!-- Automated capture route: move_base waypoint -> settle -> 360 scan. -->
+  <arg name="world" default="small_house"/>
+  <arg name="routes_file" default="$(find vlmap_bringup)/config/capture_patrol_routes.yaml"/>
+  <arg name="cmd_vel_topic" default="/hsrb/command_velocity_raw"/>
+  <arg name="goal_timeout_sec" default="90.0"/>
+  <arg name="settle_sec" default="1.0"/>
+  <arg name="scan_turns" default="1.0"/>
+  <arg name="scan_angular_speed" default="0.30"/>
+  <arg name="continue_on_failure" default="true"/>
+  <arg name="stop_capture_on_finish" default="false"/>
+
+  <node pkg="vlmap_bringup"
+        type="hsr_capture_patrol.py"
+        name="hsr_capture_patrol"
+        output="screen"
+        required="true">
+    <rosparam command="load" file="$(arg routes_file)"/>
+    <param name="world" value="$(arg world)"/>
+    <param name="cmd_vel_topic" value="$(arg cmd_vel_topic)"/>
+    <param name="goal_timeout_sec" value="$(arg goal_timeout_sec)"/>
+    <param name="settle_sec" value="$(arg settle_sec)"/>
+    <param name="scan_turns" value="$(arg scan_turns)"/>
+    <param name="scan_angular_speed" value="$(arg scan_angular_speed)"/>
+    <param name="continue_on_failure" value="$(arg continue_on_failure)"/>
+    <param name="stop_capture_on_finish" value="$(arg stop_capture_on_finish)"/>
+  </node>
+</launch>

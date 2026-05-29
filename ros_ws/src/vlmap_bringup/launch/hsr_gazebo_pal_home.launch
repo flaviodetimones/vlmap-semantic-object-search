@@ -1,0 +1,33 @@
+<?xml version="1.0"?>
+<!--
+  HSR + move_base + VLMap stack on the PAL Robotics 'home' world
+  (pal_gazebo_worlds). Multi-room domestic flat with kitchen, dining,
+  living room and bedroom areas, fully furnished with IKEA-style
+  furniture, TV, sofa, kitchen table, etc. LGPL-3.0.
+-->
+<launch>
+  <arg name="gui" default="true"/>
+  <arg name="use_rviz" default="true"/>
+  <arg name="use_rosbridge" default="false"/>
+  <arg name="paused" default="false"/>
+
+  <arg name="robot_x" default="0.0"/>
+  <arg name="robot_y" default="0.0"/>
+  <arg name="robot_z" default="0.05"/>
+  <arg name="robot_yaw" default="0.0"/>
+
+  <env name="GAZEBO_MODEL_PATH"
+       value="$(find pal_gazebo_worlds)/models:$(optenv GAZEBO_MODEL_PATH)"/>
+
+  <include file="$(find vlmap_bringup)/launch/hsr_gazebo_move_base.launch">
+    <arg name="world" value="$(find pal_gazebo_worlds)/worlds/home.world"/>
+    <arg name="gui" value="$(arg gui)"/>
+    <arg name="use_rviz" value="$(arg use_rviz)"/>
+    <arg name="use_rosbridge" value="$(arg use_rosbridge)"/>
+    <arg name="paused" value="$(arg paused)"/>
+    <arg name="robot_x" value="$(arg robot_x)"/>
+    <arg name="robot_y" value="$(arg robot_y)"/>
+    <arg name="robot_z" value="$(arg robot_z)"/>
+    <arg name="robot_yaw" value="$(arg robot_yaw)"/>
+  </include>
+</launch>

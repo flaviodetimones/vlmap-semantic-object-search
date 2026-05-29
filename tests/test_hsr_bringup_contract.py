@@ -43,10 +43,9 @@ def test_hsr_launch_wires_cmd_vel_smoother_without_changing_hsr_topic_contract()
     assert args["cmd_vel_topic"] == "/hsrb/command_velocity"
     assert args["raw_cmd_vel_topic"] == "/hsrb/command_velocity_raw"
     assert args["use_cmd_vel_smoother"] == "true"
-    # Rotation was intentionally slowed (user request: it still convulsed a
-    # bit at 0.22). Keep a sane window: above the too-slow 0.12 floor, below
-    # the original jerky 0.35.
-    assert 0.12 <= float(args["cmd_vel_max_angular"]) <= 0.35
+    # The old physics plugin convulsed under angular commands; the project
+    # kinematic base can use normal teleop-rate turns again.
+    assert 0.50 <= float(args["cmd_vel_max_angular"]) <= 0.70
 
     smoother = [
         node
@@ -64,14 +63,18 @@ def test_hsr_launch_wires_cmd_vel_smoother_without_changing_hsr_topic_contract()
     assert ("cmd_vel", "$(arg raw_cmd_vel_topic)") in remaps
 
 
-def test_external_hsr_description_keeps_gazebo_drive_contract():
+def test_hsr_uses_project_kinematic_base_instead_of_unstable_gazebo_drive():
+    launch_path = BRINGUP / "launch" / "hsr_gazebo_move_base.launch"
+    tree = ET.parse(launch_path)
+    root = tree.getroot()
+    node_types = {(node.attrib.get("pkg"), node.attrib.get("type")) for node in root.iter("node")}
+    assert ("vlmap_bringup", "hsr_kinematic_base_controller.py") in node_types
+
     gazebo_xacro = ROOT / "ros_ws" / "src" / "external" / "hsr_description" / "urdf" / "base_v2" / "base.gazebo.xacro"
     xml = gazebo_xacro.read_text(encoding="utf-8")
 
-    assert "command_velocity" in xml
-    assert "wheel_odom" in xml
-    assert "libgazebo_ros_diff_drive.so" in xml
-    assert "<wheelAcceleration>0.8</wheelAcceleration>" in xml
+    assert "libgazebo_ros_diff_drive.so" not in xml
+    assert "Base motion is handled by" in xml
 
 
 def test_hsr_move_base_profile_uses_hsr_frames_and_laser_topic():

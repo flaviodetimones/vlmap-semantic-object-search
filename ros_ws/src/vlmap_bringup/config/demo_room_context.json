@@ -1,0 +1,32 @@
+{
+  "rooms": [
+    {
+      "room_id": "kitchen",
+      "label": "kitchen",
+      "x": 1.5,
+      "y": 2.5,
+      "aliases": ["cocina"]
+    },
+    {
+      "room_id": "office",
+      "label": "office",
+      "x": -2.0,
+      "y": 4.0,
+      "aliases": ["despacho"]
+    }
+  ],
+  "priors": {
+    "bottle": [
+      {"room_id": "kitchen", "score": 0.9},
+      {"room_id": "office", "score": 0.1}
+    ],
+    "laptop": [
+      {"room_id": "office", "score": 0.95},
+      {"room_id": "kitchen", "score": 0.05}
+    ],
+    "mug": [
+      {"room_id": "kitchen", "score": 0.85},
+      {"room_id": "office", "score": 0.15}
+    ]
+  }
+}

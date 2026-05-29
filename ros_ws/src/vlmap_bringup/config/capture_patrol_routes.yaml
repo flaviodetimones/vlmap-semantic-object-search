@@ -1,0 +1,30 @@
+routes:
+  # First-pass routes for repeatable VLMap capture. They are intentionally
+  # sparse: each waypoint performs a 360-degree scan, so quality comes from
+  # stable viewpoints rather than dense manual driving.
+  small_house:
+    - {x: -3.5, y: 1.0, yaw: 0.0}
+    - {x: -2.2, y: 1.0, yaw: 1.57}
+    - {x: -2.2, y: -0.6, yaw: 3.14}
+    - {x: -0.8, y: -0.6, yaw: -1.57}
+    - {x: 0.4, y: 0.8, yaw: 0.0}
+
+  tb3_house:
+    - {x: -3.0, y: 1.0, yaw: 0.0}
+    - {x: -1.5, y: 1.0, yaw: 1.57}
+    - {x: 0.0, y: 0.0, yaw: 3.14}
+    - {x: 1.3, y: -0.8, yaw: -1.57}
+    - {x: 2.0, y: 0.8, yaw: 0.0}
+
+  pal_home:
+    - {x: 0.0, y: 0.0, yaw: 0.0}
+    - {x: 1.2, y: 0.0, yaw: 1.57}
+    - {x: 1.2, y: 1.2, yaw: 3.14}
+    - {x: 0.0, y: 1.2, yaw: -1.57}
+    - {x: -1.2, y: 0.0, yaw: 0.0}
+
+  wrs:
+    - {x: 0.0, y: 0.0, yaw: 0.0}
+    - {x: 1.0, y: 0.0, yaw: 1.57}
+    - {x: 1.0, y: 1.0, yaw: 3.14}
+    - {x: 0.0, y: 1.0, yaw: -1.57}

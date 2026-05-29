@@ -1,0 +1,11 @@
+# Ask the semantic server which rooms most likely contain a category.
+#
+# Request:
+#   category  free text label, e.g. "sofa", "bottle".
+# Response:
+#   rooms     ordered list of room ids, best first.
+#   scores    matching list of priors / scores for each room.
+string category
+---
+string[] rooms
+float32[] scores

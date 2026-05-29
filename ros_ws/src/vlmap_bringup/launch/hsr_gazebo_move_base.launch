@@ -35,16 +35,20 @@
   <arg name="robot_model_name" default="hsrb"/>
   <arg name="robot_x" default="0.0"/>
   <arg name="robot_y" default="0.0"/>
-  <arg name="robot_z" default="0.0"/>
+  <arg name="robot_z" default="0.1"/>
   <arg name="robot_yaw" default="0.0"/>
+  <!-- Kinematic base hold height. -1 => auto-detect the model's resting z
+       after it settles on the floor (recommended). Set a fixed >=0 value to
+       pin it manually. -->
+  <arg name="base_z_height" default="-1.0"/>
   <arg name="base_frame" default="base_footprint"/>
   <arg name="cmd_vel_topic" default="/hsrb/command_velocity"/>
   <arg name="raw_cmd_vel_topic" default="/hsrb/command_velocity_raw"/>
   <arg name="use_cmd_vel_smoother" default="true"/>
-  <arg name="cmd_vel_max_linear" default="0.20"/>
-  <arg name="cmd_vel_max_angular" default="0.16"/>
-  <arg name="cmd_vel_max_linear_accel" default="0.15"/>
-  <arg name="cmd_vel_max_angular_accel" default="0.10"/>
+  <arg name="cmd_vel_max_linear" default="0.28"/>
+  <arg name="cmd_vel_max_angular" default="0.65"/>
+  <arg name="cmd_vel_max_linear_accel" default="0.35"/>
+  <arg name="cmd_vel_max_angular_accel" default="1.20"/>
   <arg name="move_base_params" default="$(find vlmap_bringup)/config/hsr_move_base_params.yaml"/>
   <arg name="hsr_topics_config" default="$(find vlmap_bringup)/config/hsr_topics.yaml"/>
   <arg name="use_static_base_tf" default="false"/>
@@ -63,6 +67,19 @@
   <node pkg="controller_manager" type="spawner" ns="$(arg robot_model_name)"
         name="hsr_controller_spawner" output="screen"
         args="joint_state_controller base_roll_controller head_pan_controller head_tilt_controller arm_lift_controller arm_flex_controller arm_roll_controller wrist_flex_controller wrist_roll_controller"/>
+  <node pkg="vlmap_bringup" type="hsr_kinematic_base_controller.py"
+        name="hsr_kinematic_base_controller" output="screen">
+    <param name="model_name" value="$(arg robot_model_name)"/>
+    <param name="cmd_vel_topic" value="$(arg cmd_vel_topic)"/>
+    <param name="odom_topic" value="/odom"/>
+    <param name="odom_frame" value="odom"/>
+    <param name="base_frame" value="$(arg base_frame)"/>
+    <!-- z_height < 0 => auto-detect: let the model settle on the floor and
+         capture its resting height instead of pinning it at the spawn z
+         (which left the robot floating). -->
+    <param name="z_height" value="$(arg base_z_height)"/>
+    <param name="settle_time" value="1.5"/>
+  </node>
   <node pkg="robot_state_publisher" type="robot_state_publisher" name="robot_state_publisher"/>
   <node if="$(arg use_joint_state_publisher)" pkg="joint_state_publisher" type="joint_state_publisher" name="joint_state_publisher"/>
   <node if="$(arg use_posture_keeper)" pkg="vlmap_bringup" type="hsr_posture_keeper.py"
@@ -76,8 +93,6 @@
         name="hsr_passive_joint_state_publisher" output="screen"/>
   <node pkg="vlmap_bringup" type="hsr_sensor_visualizer.py"
         name="hsr_sensor_visualizer" output="screen"/>
-  <node pkg="topic_tools" type="relay" name="hsr_wheel_odom_relay"
-        args="/$(arg robot_model_name)/wheel_odom /odom"/>
   <!-- The HSR Gazebo laser plugin publishes to /base_scan (no namespace).
        Mirror it to /hsrb/base_scan so move_base, RViz and downstream
        nodes find it where they expect. -->

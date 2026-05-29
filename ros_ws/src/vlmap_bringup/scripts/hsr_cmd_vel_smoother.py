@@ -94,7 +94,10 @@ class HsrCmdVelSmoother:
 
 def main() -> None:
     rospy.init_node("hsr_cmd_vel_smoother")
-    HsrCmdVelSmoother().spin()
+    try:
+        HsrCmdVelSmoother().spin()
+    except rospy.ROSInterruptException:
+        pass
 
 
 if __name__ == "__main__":

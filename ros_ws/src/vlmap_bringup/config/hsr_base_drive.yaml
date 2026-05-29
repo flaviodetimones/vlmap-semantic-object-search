@@ -1,0 +1,7 @@
+wheel_radius: 0.040
+wheel_separation: 0.266
+max_effort: 11.067
+kp: 7.5
+kff: 0.7
+control_rate_hz: 20.0
+cmd_timeout: 0.40

@@ -1,0 +1,46 @@
+<?xml version="1.0"?>
+<package format="2">
+  <name>vlmap_bringup</name>
+  <version>0.1.0</version>
+  <description>Launch files, RViz config and parameters for the VLMap ROS stack.</description>
+  <maintainer email="mgarciablasco26@gmail.com">Mario Garcia Blasco</maintainer>
+  <license>MIT</license>
+
+  <buildtool_depend>catkin</buildtool_depend>
+
+  <depend>rospy</depend>
+  <exec_depend>actionlib</exec_depend>
+  <exec_depend>actionlib_msgs</exec_depend>
+  <exec_depend>gazebo_ros</exec_depend>
+  <exec_depend>gazebo_msgs</exec_depend>
+  <exec_depend>geometry_msgs</exec_depend>
+  <exec_depend>nav_msgs</exec_depend>
+  <exec_depend>move_base_msgs</exec_depend>
+  <exec_depend>robot_state_publisher</exec_depend>
+  <exec_depend>rviz</exec_depend>
+  <exec_depend>sensor_msgs</exec_depend>
+  <exec_depend>rosbridge_server</exec_depend>
+  <exec_depend>tf</exec_depend>
+  <exec_depend>tf2_ros</exec_depend>
+  <exec_depend>xacro</exec_depend>
+  <exec_depend>vlmap_semantic_server</exec_depend>
+  <exec_depend>vlmap_task_manager</exec_depend>
+  <exec_depend>habitat_ros_bridge</exec_depend>
+  <exec_depend>yoloe_verifier</exec_depend>
+  <exec_depend>move_base</exec_depend>
+  <exec_depend>map_server</exec_depend>
+  <exec_depend>controller_manager</exec_depend>
+  <exec_depend>diff_drive_controller</exec_depend>
+  <exec_depend>joint_state_controller</exec_depend>
+  <exec_depend>position_controllers</exec_depend>
+  <exec_depend>forward_command_controller</exec_depend>
+  <exec_depend>std_msgs</exec_depend>
+  <exec_depend>std_srvs</exec_depend>
+  <exec_depend>teleop_twist_keyboard</exec_depend>
+  <exec_depend>topic_tools</exec_depend>
+  <exec_depend>visualization_msgs</exec_depend>
+  <exec_depend>aws_robomaker_small_house_world</exec_depend>
+  <exec_depend>tmc_wrs_gazebo_worlds</exec_depend>
+  <exec_depend>turtlebot3_gazebo</exec_depend>
+  <exec_depend>pal_gazebo_worlds</exec_depend>
+</package>

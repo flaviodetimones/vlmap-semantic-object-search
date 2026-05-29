@@ -1,0 +1,116 @@
+<?xml version="1.0" ?>
+<sdf version="1.6">
+  <world name="minimal_walls">
+    <include>
+      <uri>model://sun</uri>
+    </include>
+    <include>
+      <uri>model://ground_plane</uri>
+    </include>
+
+    <physics type="ode">
+      <real_time_update_rate>1000.0</real_time_update_rate>
+      <max_step_size>0.001</max_step_size>
+      <real_time_factor>1.0</real_time_factor>
+    </physics>
+
+    <scene>
+      <ambient>0.45 0.45 0.45 1</ambient>
+      <background>0.7 0.7 0.7 1</background>
+      <shadows>false</shadows>
+    </scene>
+
+    <model name="room_shell">
+      <static>true</static>
+      <pose>0 0 0 0 0 0</pose>
+
+      <link name="south_wall">
+        <pose>0 -3 1 0 0 0</pose>
+        <collision name="collision">
+          <geometry>
+            <box>
+              <size>6 0.12 2</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <box>
+              <size>6 0.12 2</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0.82 0.82 0.84 1</ambient>
+            <diffuse>0.82 0.82 0.84 1</diffuse>
+          </material>
+        </visual>
+      </link>
+
+      <link name="north_wall">
+        <pose>0 3 1 0 0 0</pose>
+        <collision name="collision">
+          <geometry>
+            <box>
+              <size>6 0.12 2</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <box>
+              <size>6 0.12 2</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0.82 0.82 0.84 1</ambient>
+            <diffuse>0.82 0.82 0.84 1</diffuse>
+          </material>
+        </visual>
+      </link>
+
+      <link name="west_wall">
+        <pose>-3 0 1 0 0 0</pose>
+        <collision name="collision">
+          <geometry>
+            <box>
+              <size>0.12 6 2</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <box>
+              <size>0.12 6 2</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0.8 0.8 0.82 1</ambient>
+            <diffuse>0.8 0.8 0.82 1</diffuse>
+          </material>
+        </visual>
+      </link>
+
+      <link name="east_wall">
+        <pose>3 0 1 0 0 0</pose>
+        <collision name="collision">
+          <geometry>
+            <box>
+              <size>0.12 6 2</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <box>
+              <size>0.12 6 2</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0.8 0.8 0.82 1</ambient>
+            <diffuse>0.8 0.8 0.82 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+  </world>
+</sdf>

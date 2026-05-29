@@ -1,0 +1,74 @@
+<?xml version="1.0"?>
+<!--
+  Minimal smoke test for the Sprint 1 ROS workspace.
+  Brings up:
+    - rosbridge (port 9090, used by Sprint 2 to talk to tfg-sim)
+    - the four stub nodes (each publishes /vlmap/heartbeat)
+    - rviz with a basic config
+  Run inside tfg-ros:  roslaunch vlmap_bringup minimal.launch
+-->
+<launch>
+  <arg name="use_rviz" default="true"/>
+  <arg name="use_rosbridge" default="true"/>
+  <arg name="use_mock_move_base" default="true"/>
+  <arg name="use_move_base" default="false"/>
+  <arg name="occupancy_path" default=""/>
+  <arg name="room_centroids_path" default=""/>
+  <arg name="heatmap_dir" default=""/>
+  <arg name="pose_path" default=""/>
+  <arg name="map_resolution" default="0.05"/>
+  <arg name="map_origin_x" default="0.0"/>
+  <arg name="map_origin_y" default="0.0"/>
+  <arg name="map_frame" default="map"/>
+  <arg name="odom_frame" default="odom"/>
+  <arg name="base_frame" default="base_link"/>
+
+  <group if="$(arg use_rosbridge)">
+    <include file="$(find rosbridge_server)/launch/rosbridge_websocket.launch">
+      <arg name="port" value="9090"/>
+    </include>
+  </group>
+
+  <node pkg="vlmap_semantic_server" type="vlmap_semantic_server_node"
+        name="vlmap_semantic_server" output="screen">
+    <param name="occupancy_path" value="$(arg occupancy_path)"/>
+    <param name="room_centroids_path" value="$(arg room_centroids_path)"/>
+    <param name="heatmap_dir" value="$(arg heatmap_dir)"/>
+    <param name="map_resolution" value="$(arg map_resolution)"/>
+    <param name="map_origin_x" value="$(arg map_origin_x)"/>
+    <param name="map_origin_y" value="$(arg map_origin_y)"/>
+    <param name="map_frame" value="$(arg map_frame)"/>
+  </node>
+
+  <node pkg="vlmap_task_manager" type="vlmap_task_manager_node"
+        name="vlmap_task_manager" output="screen"/>
+
+  <node pkg="vlmap_task_manager" type="vlmap_navigation_result_node"
+        name="vlmap_navigation_result_bridge" output="screen"/>
+
+  <node pkg="habitat_ros_bridge" type="habitat_ros_bridge_node"
+        name="habitat_ros_bridge" output="screen">
+    <param name="occupancy_path" value="$(arg occupancy_path)"/>
+    <param name="pose_path" value="$(arg pose_path)"/>
+    <param name="map_resolution" value="$(arg map_resolution)"/>
+    <param name="map_origin_x" value="$(arg map_origin_x)"/>
+    <param name="map_origin_y" value="$(arg map_origin_y)"/>
+    <param name="map_frame" value="$(arg map_frame)"/>
+    <param name="odom_frame" value="$(arg odom_frame)"/>
+    <param name="base_frame" value="$(arg base_frame)"/>
+  </node>
+
+  <node pkg="yoloe_verifier" type="yoloe_verifier_node"
+        name="yoloe_verifier" output="screen"/>
+
+  <node if="$(arg use_mock_move_base)" pkg="vlmap_bringup" type="mock_move_base_node"
+        name="mock_move_base" output="screen"/>
+
+  <group if="$(arg use_move_base)">
+    <rosparam command="load" ns="move_base" file="$(find vlmap_bringup)/config/move_base_params.yaml"/>
+    <node pkg="move_base" type="move_base" name="move_base" output="screen"/>
+  </group>
+
+  <node if="$(arg use_rviz)" pkg="rviz" type="rviz" name="rviz"
+        args="-d $(find vlmap_bringup)/rviz/minimal.rviz" required="false"/>
+</launch>

@@ -65,12 +65,12 @@ DWAPlannerROS:
   meter_scoring: true
   acc_lim_x: 0.35
   acc_lim_y: 0.0
-  acc_lim_theta: 0.20
+  acc_lim_theta: 1.00
   max_vel_x: 0.25
   min_vel_x: 0.0
-  max_vel_theta: 0.16
-  min_vel_theta: -0.16
-  min_in_place_vel_theta: 0.06
+  max_vel_theta: 0.60
+  min_vel_theta: -0.60
+  min_in_place_vel_theta: 0.25
   holonomic_robot: false
   yaw_goal_tolerance: 0.45
   xy_goal_tolerance: 0.35

@@ -1,0 +1,7 @@
+{
+  "rooms": [
+    {"label": "origin", "row": 10, "col": 10},
+    {"label": "office", "row": 12, "col": 12},
+    {"label": "kitchen", "row": 7, "col": 7}
+  ]
+}
