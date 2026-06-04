@@ -32,6 +32,7 @@ import rospy
 import tf2_ros
 from cv_bridge import CvBridge
 from geometry_msgs.msg import TransformStamped
+from nav_msgs.msg import Odometry
 from sensor_msgs.msg import CameraInfo, Image
 from std_srvs.srv import Trigger, TriggerResponse
 
@@ -48,6 +49,17 @@ def _transform_to_pose(tf_msg: TransformStamped) -> PoseSample:
     t = tf_msg.transform.translation
     q = tf_msg.transform.rotation
     return PoseSample(t.x, t.y, t.z, q.x, q.y, q.z, q.w)
+
+
+def _odom_to_pose(odom_msg: Odometry) -> PoseSample:
+    # /odom carries the base pose in the odom frame. The capture stack pins
+    # map->odom to identity (static_transform_publisher "0 0 0 0 0 0 map odom"),
+    # so the odom-frame pose equals the map-frame pose. Used as a robust
+    # fallback when the full TF chain (map->odom->base->...) is not yet
+    # assembled at startup.
+    p = odom_msg.pose.pose.position
+    q = odom_msg.pose.pose.orientation
+    return PoseSample(p.x, p.y, p.z, q.x, q.y, q.z, q.w)
 
 
 class CaptureSession:
@@ -142,6 +154,7 @@ def main() -> None:
     )
     map_frame = rospy.get_param("~map_frame", "map")
     base_frame = rospy.get_param("~base_frame", "base_link")
+    odom_topic = rospy.get_param("~odom_topic", "/odom")
     output_root = rospy.get_param("~output_root", "/shared/captures")
     world_name = rospy.get_param("~world_name", "world")
     run_id = rospy.get_param("~run_id", rospy.Time.now().to_nsec())
@@ -165,15 +178,43 @@ def main() -> None:
 
     rospy.Subscriber(camera_info_topic, CameraInfo, _on_camera_info, queue_size=1)
 
+    latest_odom = {"msg": None}
+
+    def _on_odom(msg: Odometry) -> None:
+        latest_odom["msg"] = msg
+
+    rospy.Subscriber(odom_topic, Odometry, _on_odom, queue_size=1)
+
     def _on_pair(rgb_msg: Image, depth_msg: Image) -> None:
+        pose = None
         try:
             tf_msg = tf_buffer.lookup_transform(
                 map_frame, base_frame, rgb_msg.header.stamp, rospy.Duration(0.1)
             )
-        except (tf2_ros.LookupException, tf2_ros.ExtrapolationException) as exc:
-            rospy.logwarn_throttle(2.0, f"[vlmap_capture] TF unavailable: {exc}")
-            return
-        pose = _transform_to_pose(tf_msg)
+            pose = _transform_to_pose(tf_msg)
+        except tf2_ros.TransformException as exc:
+            # Includes ConnectivityException (map and base in separate trees
+            # while the kinematic base TF is still being assembled at startup),
+            # LookupException and ExtrapolationException. Instead of crashing
+            # the synchronizer callback, fall back to /odom (map->odom is
+            # identity) so capture keeps working.
+            odom_msg = latest_odom["msg"]
+            if odom_msg is not None:
+                pose = _odom_to_pose(odom_msg)
+                rospy.logwarn_throttle(
+                    5.0,
+                    "[vlmap_capture] TF %s->%s unavailable (%s); using /odom pose",
+                    map_frame,
+                    base_frame,
+                    exc.__class__.__name__,
+                )
+            else:
+                rospy.logwarn_throttle(
+                    2.0,
+                    "[vlmap_capture] TF unavailable and no /odom yet: %s",
+                    exc,
+                )
+                return
 
         try:
             rgb_bgr = bridge.imgmsg_to_cv2(rgb_msg, desired_encoding="bgr8")
