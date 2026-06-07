@@ -27,6 +27,13 @@
 \setlength{\parskip}{6pt}
 
 \hypersetup{colorlinks=true, linkcolor=black, urlcolor=blue}
+\newcommand{\optionalplot}[2][]{%
+  \IfFileExists{#2}{%
+    \includegraphics[#1]{#2}%
+  }{%
+    \fbox{\parbox[c][3.0cm][c]{0.46\linewidth}{\centering\footnotesize Figura no disponible}}%
+  }%
+}
 
 \title{\textbf{Búsqueda Semántica de Objetos en Simulación\\con Razonamiento por Habitaciones}\\[6pt]
 \large Estado del proyecto y plan de desarrollo\\[4pt]
@@ -1299,10 +1306,10 @@ mejor). Negrita = mejor entre los dos modos.}
 
 \begin{figure}[htbp]
 \centering
-\includegraphics[width=0.49\linewidth]{vlmap-semantic-object-search-tfg/results/heatmap_phase/20260424_153612/plots/bar_hitat_1.png}\hfill
-\includegraphics[width=0.49\linewidth]{vlmap-semantic-object-search-tfg/results/heatmap_phase/20260424_153612/plots/bar_mass_in_expected_ratio.png}\\[6pt]
-\includegraphics[width=0.49\linewidth]{vlmap-semantic-object-search-tfg/results/heatmap_phase/20260424_153612/plots/bar_iou_topmass50.png}\hfill
-\includegraphics[width=0.49\linewidth]{vlmap-semantic-object-search-tfg/results/heatmap_phase/20260424_153612/plots/bar_wrong_room_mass_ratio.png}
+\optionalplot[width=0.49\linewidth]{vlmap-semantic-object-search-tfg/results/heatmap_phase/20260424_153612/plots/bar_hitat_1.png}\hfill
+\optionalplot[width=0.49\linewidth]{vlmap-semantic-object-search-tfg/results/heatmap_phase/20260424_153612/plots/bar_mass_in_expected_ratio.png}\\[6pt]
+\optionalplot[width=0.49\linewidth]{vlmap-semantic-object-search-tfg/results/heatmap_phase/20260424_153612/plots/bar_iou_topmass50.png}\hfill
+\optionalplot[width=0.49\linewidth]{vlmap-semantic-object-search-tfg/results/heatmap_phase/20260424_153612/plots/bar_wrong_room_mass_ratio.png}
 \caption{Etapa~1: calidad semántica del heatmap por escena. \emph{Hit@1}
 (arriba-izq.), \emph{mass in expected room} (arriba-der.), \emph{IoU top-mass-50}
 (abajo-izq.) y \emph{wrong-room mass} (abajo-der.). Cada barra compara el modo
@@ -1379,8 +1386,8 @@ gana en \emph{Wrong Visits} y \emph{Pose Updates}.}
 
 \begin{figure}[htbp]
 \centering
-\includegraphics[width=0.49\linewidth]{vlmap-semantic-object-search-tfg/results/orchestrator_phase/20260424_154155/plots/sr.png}\hfill
-\includegraphics[width=0.49\linewidth]{vlmap-semantic-object-search-tfg/results/orchestrator_phase/20260424_154155/plots/cfr.png}
+\optionalplot[width=0.49\linewidth]{vlmap-semantic-object-search-tfg/results/orchestrator_phase/20260424_154155/plots/sr.png}\hfill
+\optionalplot[width=0.49\linewidth]{vlmap-semantic-object-search-tfg/results/orchestrator_phase/20260424_154155/plots/cfr.png}
 \caption{Etapa~2: Success Rate (izq.) y Completion Failure Rate (der.) por
 escena para \texttt{Ob\_Hp} y \texttt{Oe\_Hp}.}
 \label{fig:orch-sr-cfr}
@@ -1388,8 +1395,8 @@ escena para \texttt{Ob\_Hp} y \texttt{Oe\_Hp}.}
 
 \begin{figure}[htbp]
 \centering
-\includegraphics[width=0.49\linewidth]{vlmap-semantic-object-search-tfg/results/orchestrator_phase/20260424_154155/plots/wrong_visits.png}\hfill
-\includegraphics[width=0.49\linewidth]{vlmap-semantic-object-search-tfg/results/orchestrator_phase/20260424_154155/plots/mean_pose_updates.png}
+\optionalplot[width=0.49\linewidth]{vlmap-semantic-object-search-tfg/results/orchestrator_phase/20260424_154155/plots/wrong_visits.png}\hfill
+\optionalplot[width=0.49\linewidth]{vlmap-semantic-object-search-tfg/results/orchestrator_phase/20260424_154155/plots/mean_pose_updates.png}
 \caption{Etapa~2: \emph{Wrong Visits} (izq.) y \emph{Mean Pose Updates}
 (der.) por escena. La diferencia más visible no está en el éxito sino en el
 coste: el executor inspecciona muchos más candidatos incorrectos antes de
@@ -3322,6 +3329,394 @@ semánticas, el planificador descarta puntos no alcanzables, YOLOE verifica
 durante navegación y sólo la anotación original del detector se mantiene de
 forma temporal en pantalla.}
 \label{fig:flujo-robusto-27-mayo}
+\end{figure}
+
+\subsection*{28 de mayo de 2026 --- Smoke real de doble contenedor (tfg-sim $\rightarrow$ tfg-ros)}
+
+Cerrada la navegación base del Toyota HSR en Gazebo (Fase~1), se valida por
+primera vez el \emph{contrato} completo entre los dos contenedores (Fase~2):
+desde \texttt{tfg-sim} se pide una navegación a \texttt{tfg-ros} sin conocer
+nada del robot salvo el contrato ROS, y vuelve un resultado con token,
+éxito/fracaso y habitación. La regla arquitectónica se mantiene: la lógica de
+decisión sigue en \texttt{tfg-sim} y ROS actúa sólo como \emph{backend} de
+navegación y sensores.
+
+\paragraph{Comandos de la prueba.} La prueba usa tres terminales. La primera
+arranca el robot, su navegación y el puente \texttt{rosbridge} dentro de
+\texttt{tfg-ros}:
+
+\begin{verbatim}
+# Terminal 1 (tfg-ros): Gazebo + move_base + RViz + rosbridge
+roslaunch vlmap_bringup hsr_gazebo_move_base.launch \
+    gui:=true use_rviz:=true use_rosbridge:=true
+\end{verbatim}
+
+La segunda observa el topic neutral de resultado dentro de \texttt{tfg-ros}:
+
+\begin{verbatim}
+# Terminal 2 (tfg-ros): observador del resultado
+rostopic echo /vlmap/navigation_result
+\end{verbatim}
+
+La tercera envía el \texttt{SemanticGoal} desde \texttt{tfg-sim} a través de
+\texttt{rosbridge}, usando la herramienta \texttt{send\_ros\_semantic\_goal.py}
+y el \texttt{RosNavigationBackend}:
+
+\begin{verbatim}
+# Terminal 3 (tfg-sim): enviar el goal por rosbridge
+python tools/send_ros_semantic_goal.py \
+    --host tfg-ros --x 0.50 --y 0.50 --yaw 0.50 \
+    --room office --object laptop --timeout 30
+\end{verbatim}
+
+\paragraph{Resultado observado.} El robot gira y avanza hasta la pose pedida
+sin movimientos erráticos (gracias al \emph{cmd\_vel smoother} y al giro
+limitado a \texttt{max\_vel\_theta}~$=0{,}22$). El recorrido del mensaje fue
+el esperado:
+\begin{enumerate}[noitemsep]
+  \item \texttt{tfg-sim} publica el goal y \texttt{tfg-ros} recibe el
+        \texttt{SemanticGoal} con su \texttt{navigation\_token}.
+  \item se reexpide a \texttt{/move\_base\_simple/goal} como
+        \texttt{PoseStamped} con \emph{yaw} real.
+  \item \texttt{move\_base} planifica, navega y emite
+        \texttt{/move\_base/result} con \texttt{status}~$=3$ (\emph{SUCCEEDED}).
+  \item el puente devuelve \texttt{/vlmap/navigation\_result} con el mismo
+        token, \texttt{success}~$=\texttt{true}$ y \texttt{actual\_room}.
+\end{enumerate}
+
+El JSON de resultado confirma el cierre del contrato (token idéntico de ida y
+vuelta, \texttt{result\_status\_code}~$=3$). En esta corrida
+\texttt{room\_source}~$=$\,\texttt{requested\_echo}: la habitación devuelta es
+todavía un eco de la pedida, porque el contexto semántico vivo aún no se
+publicaba. Esa pieza es justo la siguiente (Fase~3): \texttt{tfg-sim} publica
+\texttt{/vlmap/room\_context} (latched, JSON en \texttt{std\_msgs/String}) con
+habitaciones y centroides, y \texttt{tfg-ros} resuelve \texttt{actual\_room}
+desde la pose final real (\texttt{room\_source}~$=$\,\texttt{pose\_resolved}).
+
+\begin{figure}[h]
+\centering
+\begin{tikzpicture}[
+  node distance=0.7cm and 1.15cm,
+  sim/.style={draw, rounded corners, align=center, minimum width=3.1cm,
+              minimum height=0.9cm, fill=blue!8},
+  ros/.style={draw, rounded corners, align=center, minimum width=3.1cm,
+              minimum height=0.9cm, fill=green!8},
+  bridge/.style={draw, align=center, minimum width=2.2cm, minimum height=0.8cm,
+                 fill=orange!12},
+  arrow/.style={-{Latex[length=2mm]}, thick}
+]
+  % tfg-sim column
+  \node[sim] (goal) {\texttt{send\_ros\_semantic\_goal.py}\\(query: office + laptop)};
+  \node[sim, below=of goal] (backend) {\texttt{RosNavigationBackend}\\arma SemanticGoal + token};
+  \node[sim, below=of backend] (wait) {Espera \texttt{navigation\_result}\\por token};
+
+  % rosbridge
+  \node[bridge, right=2.0cm of backend] (rb) {rosbridge\\WebSocket :9090};
+
+  % tfg-ros column
+  \node[ros, right=2.0cm of rb] (sg) {\texttt{/vlmap/semantic\_goal}};
+  \node[ros, below=of sg] (mbsimple) {\texttt{/move\_base\_simple/goal}\\PoseStamped + yaw};
+  \node[ros, below=of mbsimple] (mb) {\texttt{move\_base}\\plan + navegación HSR};
+  \node[ros, below=of mb] (res) {\texttt{/move\_base/result}\\status = 3};
+  \node[ros, below=of res] (navres) {\texttt{/vlmap/navigation\_result}\\token + success + room};
+
+  \draw[arrow] (goal) -- (backend);
+  \draw[arrow] (backend) -- (rb);
+  \draw[arrow] (rb) -- (sg);
+  \draw[arrow] (sg) -- (mbsimple);
+  \draw[arrow] (mbsimple) -- (mb);
+  \draw[arrow] (mb) -- (res);
+  \draw[arrow] (res) -- (navres);
+  \draw[arrow] (navres.west) -- ++(-0.6,0) |- (rb.south);
+  \draw[arrow] (rb.west) -- ++(-0.5,0) |- (wait.east);
+
+  \node[draw, dashed, fit=(goal)(backend)(wait), inner sep=0.35cm,
+        label=above:{\textbf{tfg-sim} (decisión semántica)}] {};
+  \node[draw, dashed, fit=(sg)(mbsimple)(mb)(res)(navres), inner sep=0.35cm,
+        label=above:{\textbf{tfg-ros} (navegación / sensores)}] {};
+\end{tikzpicture}
+\caption{Flujo del smoke de doble contenedor (28 de mayo). \texttt{tfg-sim}
+decide y publica un \texttt{SemanticGoal} por \texttt{rosbridge};
+\texttt{tfg-ros} lo reexpide a \texttt{move\_base}, navega el HSR y devuelve
+\texttt{navigation\_result} con el mismo token. La inteligencia no se porta a
+ROS: éste actúa sólo como backend de navegación.}
+\label{fig:smoke-doble-contenedor-28may}
+\end{figure}
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.92\linewidth]{figs/demo_doble_contenedor_28may.png}
+\caption{Evidencia de la prueba: RViz (arriba izq.) y Gazebo (abajo izq.) con
+el Toyota HSR; a la derecha, \texttt{tfg-sim} enviando el goal
+(\texttt{token=8002bfda\ldots}, \texttt{goal=(0{,}5,\,0{,}5,\,yaw=0{,}5)}) y
+\texttt{tfg-ros} mostrando \texttt{/vlmap/navigation\_result} con
+\texttt{success=true}, \texttt{result\_status\_code=3} y \texttt{actual\_room=office}.}
+\label{fig:evidencia-smoke-28may}
+\end{figure}
+
+\subsection*{28 de mayo de 2026 (segunda iteración) --- Contexto semántico vivo (Fase 3) y giro más lento}
+
+Cerrado el contrato de navegación (Fase~2), se implementa la \textbf{Fase~3}:
+\texttt{tfg-sim} pasa a publicar el contexto semántico de habitaciones en vivo,
+de modo que \texttt{tfg-ros} resuelve la habitación real desde la pose final
+del robot en lugar de hacer eco de la pedida. Se respeta la regla
+arquitectónica: el contexto viaja como \emph{datos} (no como geometría de
+Gazebo), así que el mundo de simulación robótica no necesita cargar las
+habitaciones.
+
+\begin{enumerate}
+  \item \textbf{Transporte elegido}: topic \emph{latched}
+        \texttt{/vlmap/room\_context} con JSON en \texttt{std\_msgs/String}
+        (mismo patrón que \texttt{SemanticGoal} y \texttt{navigation\_result}).
+        Los mapas/heatmaps, si se envían, viajan como \emph{referencias} a
+        \texttt{/shared/} (bind mount), nunca embebidos, para no saturar
+        \texttt{rosbridge}.
+  \item \textbf{Publicador (lado tfg-sim)}: nueva clase
+        \texttt{RoomContextPublisher} en \texttt{tfg\_nav\_contracts}, simétrica
+        a \texttt{RosNavigationBackend} (roslibpy sobre rosbridge, sin
+        dependencia de \texttt{rospy}). \texttt{build\_payload()} arma
+        \texttt{\{rooms, priors, maps\}} y \texttt{publish()} lo emite latched.
+  \item \textbf{Resolución por pose (lado tfg-ros)}: se añade
+        \texttt{DynamicRoomContext.room\_at\_pose(x, y, max\_distance)}, que
+        devuelve la habitación cuyo centroide está más cerca de la pose final.
+        El nodo \texttt{vlmap\_navigation\_result\_node} se suscribe a
+        \texttt{/vlmap/room\_context} (latched) y a la pose del robot
+        (\texttt{/amcl\_pose}); al cerrar un goal resuelve
+        \texttt{actual\_room} desde la pose real.
+  \item \textbf{Trazabilidad}: \texttt{build\_navigation\_result\_payload}
+        acepta \texttt{resolved\_room}; cuando hay contexto vivo el resultado
+        lleva \texttt{room\_source=pose\_resolved} y guarda
+        \texttt{requested\_room}; sin contexto mantiene el fallback
+        \texttt{room\_source=requested\_echo}.
+  \item \textbf{Herramienta de disparo}: \texttt{tools/publish\_room\_context\_live.py},
+        simétrica a \texttt{send\_ros\_semantic\_goal.py}. Modos: \texttt{--demo}
+        (contexto de 3--4 salas con coordenadas en el frame \texttt{/map}),
+        \texttt{--context-file} (JSON listo) y \texttt{--scene} (centroides de
+        rejilla de \texttt{room\_map/regions.json}). Por defecto mantiene la
+        conexión abierta para que el topic latched siga disponible a
+        suscriptores tardíos; \texttt{--once} publica y sale.
+  \item \textbf{Tests}: nuevo \texttt{tests/test\_room\_context\_live.py}
+        (nearest-centroid, round-trip publicador$\leftrightarrow$parser,
+        override de \texttt{actual\_room}). Total \textbf{27 pruebas en verde}.
+\end{enumerate}
+
+\paragraph{Smoke de Fase 3.} Con \texttt{tfg-ros} arrancado, desde
+\texttt{tfg-sim}:
+
+\begin{verbatim}
+# 1) publicar contexto vivo (se queda latched)
+python tools/publish_room_context_live.py --host tfg-ros --demo
+# 2) mandar el goal a una sala conocida del contexto
+python tools/send_ros_semantic_goal.py \
+    --host tfg-ros --x 2.5 --y 0.0 --yaw 0.0 \
+    --room office --object laptop --timeout 30
+\end{verbatim}
+
+Criterio de cierre: el resultado pasa de \texttt{room\_source="requested\_echo"}
+a \texttt{"pose\_resolved"} y \texttt{actual\_room} se deriva de la pose final
+real, eliminando la dependencia de centroides demo-estáticos.
+
+\paragraph{Cierre verificado y ajuste de la fuente de pose.} En la primera
+ejecución el resultado seguía marcando \texttt{requested\_echo} pese a publicar
+el contexto. La causa: el \emph{launch} \texttt{hsr\_gazebo\_move\_base} no
+incluye AMCL ni \texttt{map\_server} (sólo un TF estático
+\texttt{map}$\rightarrow$\texttt{odom} identidad), de modo que
+\texttt{/amcl\_pose} nunca se publica y la pose del robot quedaba a
+\texttt{None}. Se corrige apuntando la fuente de pose por defecto a
+\texttt{/odom} (\texttt{nav\_msgs/Odometry}): como \texttt{map}$\rightarrow$%
+\texttt{odom} es identidad, las poses de \texttt{/odom} ya están en el frame
+\texttt{map}. Un parámetro \texttt{\~{}robot\_pose\_type}
+(\texttt{odom}\,$|$\,\texttt{amcl}\,$|$\,\texttt{pose\_stamped}) mantiene el
+soporte para configuraciones con AMCL. Tras el ajuste, el smoke de doble
+contenedor devuelve \texttt{room\_source=pose\_resolved} y
+\texttt{actual\_room} resuelto desde la pose final. \textbf{Fase 3 cerrada.}
+
+La figura~\ref{fig:resolucion-room-fase3} resume el mecanismo: el contexto vivo
+(latched) y la pose del robot se combinan en el nodo de resultado para producir
+la habitación real, con \emph{fallback} explícito y trazable al eco cuando no
+hay contexto.
+
+\begin{figure}[h]
+\centering
+\resizebox{\linewidth}{!}{%
+\begin{tikzpicture}[
+  node distance=0.7cm and 1.0cm,
+  sim/.style={draw, rounded corners, align=center, minimum width=3.0cm,
+              minimum height=0.85cm, fill=blue!8},
+  ros/.style={draw, rounded corners, align=center, minimum width=3.0cm,
+              minimum height=0.85cm, fill=green!8},
+  decision/.style={draw, diamond, aspect=2.4, align=center, fill=orange!12,
+                   inner sep=1pt},
+  outnode/.style={draw, rounded corners, align=center, minimum width=3.0cm,
+              minimum height=0.85cm, fill=green!18},
+  arrow/.style={-{Latex[length=2mm]}, thick}
+]
+  \node[sim] (ctxpub) {tfg-sim:\\\texttt{publish\_room\_context\_live}};
+  \node[ros, right=1.6cm of ctxpub] (ctxtopic) {\texttt{/vlmap/room\_context}\\(latched, JSON)};
+  \node[ros, below=of ctxtopic] (odom) {\texttt{/odom}\\pose en frame map};
+  \node[ros, below=of odom] (result) {\texttt{/move\_base/result}\\status = 3};
+  \node[decision, right=1.4cm of odom] (has) {\,¿contexto\\+ pose?\,};
+  \node[outnode, right=1.4cm of has, yshift=0.9cm] (resolved) {\texttt{room\_at\_pose}\\\texttt{room\_source=}\\\texttt{pose\_resolved}};
+  \node[ros, right=1.4cm of has, yshift=-0.9cm, fill=orange!10] (echo) {eco de la pedida\\\texttt{room\_source=}\\\texttt{requested\_echo}};
+  \node[outnode, below=1.0cm of echo] (navres) {\texttt{/vlmap/navigation\_result}\\token + success + actual\_room};
+
+  \draw[arrow] (ctxpub) -- (ctxtopic);
+  \draw[arrow] (ctxtopic) -- (has);
+  \draw[arrow] (odom) -- (has);
+  \draw[arrow] (result) -| (has);
+  \draw[arrow] (has) -- node[above,sloped]{sí} (resolved);
+  \draw[arrow] (has) -- node[below,sloped]{no} (echo);
+  \draw[arrow] (resolved) |- (navres);
+  \draw[arrow] (echo) -- (navres);
+\end{tikzpicture}%
+}
+\caption{Resolución de \texttt{actual\_room} en Fase 3. El contexto semántico
+vivo (latched) y la pose real del robot (\texttt{/odom}, frame \texttt{map}) se
+combinan en el nodo de resultado: si ambos están presentes,
+\texttt{room\_at\_pose} devuelve la habitación por centroide más cercano
+(\texttt{pose\_resolved}); si no, se mantiene el eco trazable de la habitación
+pedida (\texttt{requested\_echo}).}
+\label{fig:resolucion-room-fase3}
+\end{figure}
+
+\paragraph{Giro más lento (anti-convulsión).} En las pruebas el HSR aún
+``convulsionaba'' levemente al girar con \texttt{max\_vel\_theta}~$=0{,}22$.
+Se reduce de nuevo, sin volver al \texttt{0{,}12} que resultó demasiado lento:
+\texttt{max\_vel\_theta}~$=0{,}16$, \texttt{acc\_lim\_theta}~$=0{,}20$,
+\texttt{min\_in\_place\_vel\_theta}~$=0{,}06$, y en el suavizador
+\texttt{cmd\_vel\_max\_angular}~$=0{,}16$ con
+\texttt{cmd\_vel\_max\_angular\_accel}~$=0{,}10$ (la rampa angular más baja es
+la que de verdad quita el tirón).
+
+\subsection*{28 de mayo de 2026 (tercera iteración) --- Fase 4: percepción en Habitat (Opción A)}
+
+Decidida la arquitectura de percepción: \textbf{Opción A}. ROS navega y los
+sensores físicos del HSR no se usan para verificar; la verificación visual la
+sigue haciendo Habitat, renderizando la pose final donde sí están los objetos
+ya colocados (botella, taza, baloncesto, peluche, portátil). Así no se porta
+percepción a ROS y se reutiliza todo el trabajo de colocación. La alternativa
+(mundo espejo en Gazebo con los objetos reconstruidos en SDF/URDF) se descarta
+por coste y por romper la regla arquitectónica.
+
+\begin{enumerate}
+  \item \textbf{La pose final viaja en el resultado}: el nodo de ROS guarda la
+        pose del robot como \texttt{(x, y, yaw)} (yaw extraído del cuaternión) y
+        \texttt{build\_navigation\_result\_payload} la registra en
+        \texttt{metadata.final\_pose}. Así \texttt{tfg-sim} recibe la pose sin
+        una segunda suscripción.
+  \item \textbf{Transformación de frames}: nueva clase \texttt{Rigid2D}
+        (\texttt{tx, ty, theta, scale}) que expresa \texttt{T\_habitat\_from\_map}.
+        Para el Gazebo vacío actual ambos frames coinciden, así que la identidad
+        es el valor por defecto; sólo hará falta una transformación no trivial
+        cuando Gazebo cargue un mapa con origen/orientación distintos.
+  \item \textbf{\texttt{PoseSyncBridge}}: dado un \texttt{navigation\_result},
+        extrae \texttt{final\_pose}, la transforma al frame de Habitat y llama a
+        un \emph{verifier} inyectado (\texttt{verifier(pose, result)}). En
+        producción ese callback teletransporta el agente de Habitat a esa pose y
+        ejecuta YOLOE; en los tests es un \emph{fake}. La lógica de transporte y
+        transformación es pura y sin dependencia de ROS ni Habitat.
+  \item \textbf{Tests}: nuevo \texttt{tests/test\_pose\_sync.py} (identidad,
+        traslación, rotación, inverso \emph{round-trip}, extracción de pose y
+        \emph{hook} del verifier). Total \textbf{38 pruebas en verde}.
+\end{enumerate}
+
+La figura~\ref{fig:bucle-percepcion-fase4} muestra el bucle completo previsto
+para la demo (Fase 5): la decisión semántica y la verificación viven en
+\texttt{tfg-sim}; ROS sólo navega y devuelve la pose real, que el
+\texttt{PoseSyncBridge} reproyecta a Habitat para que YOLOE confirme.
+
+\begin{figure}[h]
+\centering
+\resizebox{\linewidth}{!}{%
+\begin{tikzpicture}[
+  node distance=0.75cm and 1.0cm,
+  sim/.style={draw, rounded corners, align=center, minimum width=3.1cm,
+              minimum height=0.85cm, fill=blue!8},
+  ros/.style={draw, rounded corners, align=center, minimum width=3.1cm,
+              minimum height=0.85cm, fill=green!8},
+  decision/.style={draw, diamond, aspect=2.6, align=center, fill=orange!12,
+                   inner sep=1pt},
+  done/.style={draw, rounded corners, align=center, minimum width=2.6cm,
+               minimum height=0.85cm, fill=green!18},
+  arrow/.style={-{Latex[length=2mm]}, thick}
+]
+  \node[sim] (query) {tfg-sim: query\\``find laptop''};
+  \node[sim, below=of query] (decide) {decide habitación\\+ candidato (VLMaps)};
+  \node[ros, right=1.8cm of decide] (nav) {tfg-ros: \texttt{move\_base}\\navega el HSR};
+  \node[ros, below=of nav] (res) {\texttt{navigation\_result}\\+ \texttt{final\_pose}};
+  \node[sim, left=1.8cm of res] (sync) {\texttt{PoseSyncBridge}\\map$\rightarrow$Habitat};
+  \node[sim, below=of sync] (yoloe) {teleport Habitat\\+ YOLOE};
+  \node[decision, right=1.6cm of yoloe] (ok) {¿confirmado?};
+  \node[done, right=1.4cm of ok] (found) {objeto\\encontrado};
+
+  \draw[arrow] (query) -- (decide);
+  \draw[arrow] (decide) -- node[above]{SemanticGoal} (nav);
+  \draw[arrow] (nav) -- (res);
+  \draw[arrow] (res) -- (sync);
+  \draw[arrow] (sync) -- (yoloe);
+  \draw[arrow] (yoloe) -- (ok);
+  \draw[arrow] (ok) -- node[above]{sí} (found);
+  \draw[arrow] (ok.south) |- node[pos=0.25,left]{no: otro candidato} (decide.south);
+\end{tikzpicture}%
+}
+\caption{Bucle de la demo end-to-end (Fase 5) bajo la Opción A. \texttt{tfg-sim}
+decide y verifica; \texttt{tfg-ros} sólo navega y devuelve la pose real. El
+\texttt{PoseSyncBridge} reproyecta esa pose al frame de Habitat, donde YOLOE
+confirma sobre los objetos colocados. Si no se confirma, la política elige otro
+candidato y se repite el ciclo. ROS nunca percibe.}
+\label{fig:bucle-percepcion-fase4}
+\end{figure}
+
+\subsection*{7 de junio de 2026: validación semántica multiclase del VLMap ROS/Gazebo}
+
+Se ha cerrado la validación del mapa construido desde una captura RGB-D del HSR
+en Gazebo. El resultado principal es que el fichero \texttt{vlmaps.h5df}
+generado por el flujo ROS/Gazebo tiene el mismo formato operativo que los mapas
+HSSD que ya funcionaban en \texttt{tfg-sim}; el problema observado no estaba en
+la construcción del mapa, sino en la forma de medirlo.
+
+El diagnóstico inicial usaba el score crudo de una sola categoría. Ese criterio
+no es válido para evaluar VLMaps porque las puntuaciones CLIP de categorías
+aisladas son muy colineales: dos mapas de una única clase pueden correlacionar
+casi igual aunque describan zonas distintas. La validación nueva replica el uso
+nativo de VLMaps: se inicializa el vocabulario completo con
+\texttt{init\_categories(mp3dcat)}, se añaden las categorías solicitadas que no
+están en MP3D y cada vóxel queda asignado sólo a la categoría que gana el
+\texttt{argmax} frente al resto del vocabulario y la clase de fondo
+\texttt{other}.
+
+Además de esta validación, se dejan documentados los arreglos que hicieron
+posible el flujo completo: captura robusta ante fallos TF con fallback a
+\texttt{/odom}, carga correcta del directorio del run en \texttt{VLMap.load\_map},
+\texttt{PYTHONPATH} adecuado en el menú, uso de \texttt{++} en claves Hydra ya
+existentes, inyección de \texttt{params.gs} y \texttt{params.cs} al cargar la
+configuración aislada y eliminación de la inicialización vacía de categorías.
+
+\begin{table}[h]
+\centering
+\begin{tabular}{lrrrr}
+\toprule
+Mapa evaluado & Celdas ocupadas & IoU medio & IoU máximo & Par máximo \\
+\midrule
+small\_house ROS/Gazebo & 25\,629 & 0.00010 & 0.00126 & refrigerator-sink \\
+HSSD 102344280\_0 & 21\,453 & 0.0120 & 0.1655 & table-chair \\
+\bottomrule
+\end{tabular}
+\caption{Resultado del índice semántico multiclase para categorías de
+habitaciones distintas. En el mapa capturado desde ROS/Gazebo las máscaras son
+prácticamente disjuntas; en HSSD el mayor solape aparece entre mesa y silla, que
+es una proximidad semánticamente esperable.}
+\end{table}
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.48\linewidth]{figs/vlmap_index_small_house.png}
+\hfill
+\includegraphics[width=0.48\linewidth]{figs/vlmap_index_hssd_102344280_0.png}
+\caption{Mapa de categoría dominante por celda para la captura
+\texttt{small\_house} (izquierda) y para HSSD \texttt{102344280\_0} (derecha).
+La captura ROS/Gazebo separa cama, cocina, zona común y ausencia de baño con un
+solape medio muy bajo.}
 \end{figure}
 
 \end{document}
