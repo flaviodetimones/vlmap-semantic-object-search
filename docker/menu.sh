@@ -611,6 +611,7 @@ run_ros_capture_menu() {
         echo "  │  l) List available captures                         │"
         echo "  │  m) Build VLMap from a capture                      │"
         echo "  │  h) Dump per-category heatmaps for tfg-ros          │"
+        echo "  │  i) Dump native multi-class index heatmaps          │"
         echo "  │  b) Back                                            │"
         echo "  └─────────────────────────────────────────────────────┘"
         echo -n "  Select: "
@@ -732,6 +733,55 @@ run_ros_capture_menu() {
                 echo ""
                 echo "  ✓ Heatmaps written. Use them from tfg-ros with"
                 echo "       heatmap_dir:=$OUT_DIR"
+                ;;
+            i|I)
+                echo ""
+                if [ ! -d "$CAPTURES_ROOT" ]; then
+                    echo "  $CAPTURES_ROOT not mounted."
+                    continue
+                fi
+                local -a built=()
+                while IFS= read -r v; do
+                    # v = <run>/vlmap/vlmaps.h5df ; VLMap.load_map wants the run
+                    # dir (it appends "vlmap/vlmaps.h5df" itself), so go up twice.
+                    built+=("$(dirname "$(dirname "$v")")")
+                done < <(find "$CAPTURES_ROOT" -mindepth 3 -maxdepth 4 -name "vlmaps.h5df" | sort)
+                if [ ${#built[@]} -eq 0 ]; then
+                    echo "  No VLMaps built yet (look for vlmaps.h5df). Use 'm' first."
+                    continue
+                fi
+                echo "  Captures with a built VLMap:"
+                local idx=0
+                for d in "${built[@]}"; do
+                    echo "    [$idx] $d"
+                    idx=$((idx + 1))
+                done
+                echo -n "  Select index (default 0): "
+                read -r sel
+                sel=${sel:-0}
+                if ! [[ "$sel" =~ ^[0-9]+$ ]] || [ "$sel" -ge "${#built[@]}" ]; then
+                    echo "  Invalid index."
+                    continue
+                fi
+                local CAP_DIR="${built[$sel]}"
+                local WORLD
+                WORLD=$(basename "$(dirname "$CAP_DIR")")
+                echo -n "  Categories (space separated, default: refrigerator sink bed sofa toilet table chair): "
+                read -r cats
+                cats=${cats:-refrigerator sink bed sofa toilet table chair}
+                local OUT_DIR="$HEATMAPS_ROOT/$WORLD/index"
+                echo ""
+                echo "► Dumping native multi-class index heatmaps to $OUT_DIR ..."
+                cd /workspace
+                # shellcheck disable=SC2086
+                python -m vlmap_ros_export.index_validation \
+                    --data-dir "$CAP_DIR" \
+                    --output-dir "$OUT_DIR" \
+                    --categories $cats
+                echo ""
+                echo "  ✓ Native index heatmaps written. Use them from tfg-ros with"
+                echo "       heatmap_dir:=$OUT_DIR"
+                echo "  Validation metrics: $OUT_DIR/metrics.json"
                 ;;
             b|B)
                 break

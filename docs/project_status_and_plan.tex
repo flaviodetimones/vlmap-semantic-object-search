@@ -1,0 +1,1117 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[spanish]{babel}
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{parskip}
+\usepackage{hyperref}
+\usepackage{enumitem}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{xcolor}
+\usepackage{graphicx}
+\usepackage{longtable}
+\usepackage{amsmath}
+\usepackage{amssymb}
+
+\definecolor{done}{RGB}{0,140,0}
+\definecolor{partialcol}{RGB}{200,120,0}
+\definecolor{pendingcol}{RGB}{180,0,0}
+\definecolor{bugcol}{RGB}{140,0,140}
+
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{6pt}
+
+\hypersetup{colorlinks=true, linkcolor=black, urlcolor=blue}
+
+\title{\textbf{Búsqueda Inteligente de Objetos en Simulación}\\
+\large Estado actual del proyecto y plan de implementación\\
+\normalsize Detección (YOLOE) + Búsqueda (VLMaps) + Navegación (Habitat-Sim)\\
+Extensión: ROS 1 Noetic + Toyota HSR}
+\author{Mario García Blasco}
+\date{15 de mayo de 2026}
+
+\begin{document}
+
+\maketitle
+\tableofcontents
+\newpage
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Visión general del proyecto}
+% ─────────────────────────────────────────────────────────────────────────────
+
+\subsection{Problema}
+
+Dado un objetivo expresado en lenguaje natural (por ejemplo, \textit{"find the laptop"}), un robot
+simulado debe localizar el objeto de forma eficiente en un entorno interior. El robot opera en
+escenas Matterport3D y HSSD renderizadas con Habitat-Sim.
+
+\subsection{Hipótesis}
+
+Un sistema que combine tres niveles de conocimiento --- etiquetas de habitaciones, memoria
+semántica de mobiliario (VLMaps, 37 categorías MP3D / 36 categorías HSSD) y verificación
+visual de vocabulario abierto (YOLOE) --- encuentra objetos específicos de forma más eficiente
+que métodos que dependen de un solo nivel.
+
+\subsection{Los tres niveles de conocimiento}
+
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+\textbf{Nivel} & \textbf{Herramienta} & \textbf{Qué sabe} \\
+\midrule
+Habitación & LabelMe (MP3D) / \texttt{semantic\_config.json} (HSSD) &
+  «Esto es el salón» \\
+Mueble / zona & VLMaps (37 cats MP3D / 36 cats HSSD) &
+  «Hay un sofá allí» \\
+Objeto específico & YOLOE (open-vocab) &
+  «Hay un portátil encima de esa mesa» \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{Idea clave: VLMaps estrecha la búsqueda, YOLOE confirma}
+
+\begin{enumerate}
+  \item El usuario pide un objeto específico («laptop»).
+  \item Un LLM traduce ese objeto a categorías VLMap donde es probable encontrarlo:
+        \texttt{laptop} $\rightarrow$ \texttt{[table, counter, shelving]}.
+  \item VLMaps localiza todas las instancias de esas categorías en el mapa.
+  \item El robot navega al candidato más prometedor.
+  \item YOLOE mira con la cámara y confirma si el objeto está ahí.
+  \item Si no $\rightarrow$ siguiente candidato. Si sí $\rightarrow$ \textbf{ENCONTRADO}.
+\end{enumerate}
+
+\subsection{Etiquetado de habitaciones}
+
+Para instrucciones del tipo \textit{"go to the living room and find the laptop"}, el robot
+necesita saber dónde está el salón.
+
+\begin{itemize}
+  \item \textbf{MP3D}: etiquetado manual offline con LabelMe (pipeline lista, pendiente de ejecutar).
+  \item \textbf{HSSD}: anotaciones nativas en \texttt{semantics/scenes/<id>.semantic\_config.json}.
+        La clase \texttt{SemanticSceneRoomProvider} las rasteriza sobre el grid del VLMap sin
+        necesidad de LabelMe.
+\end{itemize}
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Estado actual del proyecto (15 mayo 2026)}
+% ─────────────────────────────────────────────────────────────────────────────
+
+\subsection{Infraestructura --- \textcolor{done}{COMPLETADA}}
+
+\begin{itemize}
+  \item[\checkmark] Docker con CUDA 12.1 + Habitat-Sim 0.3.1 + conda (Python 3.9)
+  \item[\checkmark] 3 escenas MP3D con VLMaps construidos:
+        \textbf{gTV8FGcVJC9\_1}, \textbf{jh4fc5c5qoQ\_1}, \textbf{mJXqzFtmKg4\_1}
+  \item[\checkmark] 4 escenas adicionales descargadas (sin VLMap aún):
+        mJXqzFtmKg4, jh4fc5c5qoQ, JeFG25nYj2p, Uxmj2M2itWa
+  \item[\checkmark] 1 escena HSSD integrada: \textbf{102344280} (15 habitaciones, $\sim$447 m²),
+        VLMap construido e indexado
+  \item[\checkmark] Menú interactivo en Docker (\texttt{menu.sh}) para toda la pipeline
+  \item[\checkmark] Submodule git \texttt{third\_party/vlmaps} (rama \texttt{tfg-modifications})
+  \item[\checkmark] Repositorio limpio en GitHub: \texttt{mobileclip\_blt.ts} (571 MB) eliminado
+        del historial con \texttt{git-filter-repo}; push operativo
+\end{itemize}
+
+\subsection{Navegación interactiva --- \textcolor{done}{COMPLETADA}}
+
+\begin{itemize}
+  \item[\checkmark] Pipeline completa: instrucción $\rightarrow$ LLM $\rightarrow$ goal selection
+        $\rightarrow$ visgraph $\rightarrow$ navegación live con visualización
+  \item[\checkmark] \texttt{plan\_path\_only()}: planificación sin ejecución --- elimina el
+        teletransporte; camino mostrado como línea roja 800 ms antes de ejecutar
+  \item[\checkmark] Movimientos lentos y fluidos (\texttt{\_NAV\_STEP\_DELAY\_MS = 80 ms})
+  \item[\checkmark] Dirección de cara corregida:
+        $\theta = \arctan2(-\Delta y, -\Delta x)$, signo de giro consistente con el
+        planificador interno
+  \item[\checkmark] Goal selection con 3 niveles de fallback (room centroid / BFS / heatmap peak)
+  \item[\checkmark] Visgraph con margen de 4 px ($\sim$20 cm); recuperación de colisión
+        (giro $30^\circ$ + avance + replanificación); hasta 3 replanes y 8 candidatos
+  \item[\checkmark] Heatmap semántico overlay (JET colormap, 50\% opacidad)
+  \item[\checkmark] Cámara primera persona con inclinación $-30^\circ$
+  \item[\checkmark] Multi-goal retry (hasta 8 candidatos por categoría, ordenados por BFS)
+\end{itemize}
+
+\subsection{Mapper LLM --- \textcolor{done}{COMPLETADO}}
+
+\begin{itemize}
+  \item[\checkmark] El LLM traduce objetos no-VLMap a categorías VLMap probables.
+        Ejemplo: \texttt{laptop} $\rightarrow$ \texttt{[table, counter, shelving]}
+  \item[\checkmark] Distingue queries directas (\texttt{sofa} $\in$ MP3D) e indirectas
+        (\texttt{laptop} $\notin$ MP3D)
+  \item[\checkmark] Room-based reasoning: sugiere habitaciones probables además de muebles.
+        Ejemplo: \texttt{laptop} $\rightarrow$ \texttt{rooms: [office, bedroom]}
+  \item[\checkmark] Prompt con 6 few-shot examples incluyendo rooms
+\end{itemize}
+
+\subsection{Siguiente extensión semántica antes de ROS --- objetos no-VLMap abiertos}
+
+\textbf{Decisión táctica (24 abril 2026).} Antes de migrar el proyecto a ROS 1
+Noetic conviene estabilizar una capa semántica más rica para \textbf{objetos
+específicos que ya aparecen en HSSD pero no forman parte del vocabulario base
+de VLMaps}. Esto permite validar la parte difícil del problema
+\emph{semántico-visual} antes de mezclarla con problemas de ROS, Gazebo,
+\texttt{tf}, \texttt{move\_base} o el HSR.
+
+\paragraph{Tesis de diseño.} El mapeo
+\texttt{objeto específico $\rightarrow$ muebles surrogate} no debe quedarse en
+una tabla manual cerrada. Para objetos como \texttt{bottle},
+\texttt{charger}, \texttt{notebook} o \texttt{printer}, el sistema debe ser
+capaz de inferir dónde buscar sin tener que añadir una regla nueva cada vez.
+Por eso:
+\begin{itemize}
+  \item el \textbf{LLM} debe decidir el \emph{target canónico}, una lista
+        ordenada de muebles surrogate y, opcionalmente, habitaciones probables;
+  \item una \textbf{capa de validación determinista} debe filtrar esa salida y
+        quedarse solo con categorías VLMap realmente navegables;
+  \item \texttt{object\_priors.py} debe mantenerse como \textbf{fallback
+        auditado}, no como única fuente de decisión.
+\end{itemize}
+
+\paragraph{Shortlist aprobada para la siguiente sesión.}
+\begin{itemize}
+  \item \textbf{Prioridad alta}: \texttt{laptop}, \texttt{book},
+        \texttt{soap}, \texttt{vase}, \texttt{candle}.
+  \item \textbf{Prioridad media}: \texttt{basket}, \texttt{printer},
+        \texttt{teapot}.
+\end{itemize}
+
+\paragraph{Flujo objetivo.} Para targets fuera del vocabulario VLMap:
+\begin{enumerate}
+  \item \textbf{Normalización léxica}: resolver aliases triviales
+        (\texttt{computer}$\rightarrow$\texttt{laptop},
+        \texttt{books}$\rightarrow$\texttt{book},
+        \texttt{tea pot}$\rightarrow$\texttt{teapot},
+        \texttt{soap dispenser}$\rightarrow$\texttt{soap}).
+  \item \textbf{Consulta al LLM}: pedir una salida estructurada con
+        \texttt{canonical\_target}, \texttt{query\_mode},
+        \texttt{surrogate\_categories}, \texttt{likely\_rooms},
+        \texttt{yoloe\_label} y \texttt{aliases}.
+  \item \textbf{Validación}: filtrar los surrogates contra
+        \texttt{get\_categories("hssd")} y contra el vocabulario realmente
+        disponible en la escena.
+  \item \textbf{Planificación}: construir el heatmap con los muebles surrogate
+        supervivientes.
+  \item \textbf{Verificación}: YOLOE confirma el
+        \texttt{canonical\_target}, no el surrogate. Es decir, se navega a una
+        \texttt{table} o a un \texttt{desk}, pero se verifica
+        \texttt{laptop}.
+\end{enumerate}
+
+\paragraph{Objetivo práctico.} La salida del LLM debe responder a
+\emph{qué objeto es} y \emph{sobre qué tipo de mueble conviene buscarlo}; el
+sistema debe seguir controlando \emph{qué parte de esa sugerencia es
+ejecutable}. Esto deja el camino preparado para búsquedas más abiertas de nivel
+3 y para una posterior migración a ROS con una semántica ya endurecida.
+
+\subsection{YOLOE como verificador --- \textcolor{done}{COMPLETADO}}
+
+\begin{itemize}
+  \item[\checkmark] Worker persistente (\texttt{\_yoloe\_persistent\_worker.py}): modelo
+        cargado una sola vez; inferencias $\sim$100--500 ms en lugar de $\sim$30 s
+  \item[\checkmark] Protocolo stdout correcto: diagnósticos a \texttt{sys.stderr},
+        \texttt{start()} lee hasta recibir \texttt{READY} (no solo una línea)
+  \item[\checkmark] \texttt{mobileclip\_blt.ts} copiado automáticamente al arrancar
+        (busca en \texttt{parents[2]}, \texttt{parents[4]}, \texttt{/workspace};
+        elimina versión corrupta de menos de 100 MB para forzar re-descarga)
+  \item[\checkmark] Captura de stderr del worker para diagnóstico de crashes
+  \item[\checkmark] Centrado visual iterativo (visual servoing): hasta 6 iteraciones de $5^\circ$
+        ($\pm$15\% tolerancia)
+  \item[\checkmark] Flujo de verificación en 3 stages:
+    \begin{enumerate}
+      \item Standoff 0,25 m --- YOLOE síncrono
+      \item Scan $360^\circ$ in situ --- YOLOE asíncrono (hilo bg)
+      \item Componente alternativa del heatmap --- YOLOE síncrono
+    \end{enumerate}
+  \item[\checkmark] 15 categorías YOLOE-incompatibles saltan la verificación
+        (wall, floor, ceiling, beam, railing, etc.)
+  \item[\checkmark] Caché global \texttt{get\_session(target)}: reutiliza sesión entre
+        instrucciones del mismo objeto
+\end{itemize}
+
+\subsection{Filtros de calidad --- \textcolor{done}{COMPLETADOS}}
+
+\begin{itemize}
+  \item[\checkmark] \textbf{Filtro de coherencia de heatmaps}:
+        mín. 30 celdas, $\geq$30\% dominancia, $\leq$20 componentes conexas
+  \item[\checkmark] \textbf{Filtro por tamaño medio de regiones}:
+        descarta contornos $<$30\% del área media
+  \item[\checkmark] \textbf{Wall filter}:
+        ratio BFS/euclídea $>3\times$ descarta candidatos al otro lado de paredes
+  \item[\checkmark] \textbf{Postprocess heatmap}: suavizado Gaussiano $\rightarrow$ umbral
+        relativo $\rightarrow$ metadatos por componente (área, score, densidad, centroide)
+\end{itemize}
+
+\subsection{Integración HSSD --- \textcolor{done}{COMPLETADA}}
+
+\begin{itemize}
+  \item[\checkmark] \texttt{dataset\_type=hssd} activa la rama HSSD sin romper MP3D
+  \item[\checkmark] \texttt{scene\_dataset\_config\_file} declarado en Hydra config
+        (sin prefijo \texttt{+}), corregido en \texttt{menu.sh}
+  \item[\checkmark] Navmesh recomputado al iniciar con parámetros correctos
+  \item[\checkmark] 36 categorías HSSD en \texttt{get\_categories("hssd")}
+  \item[\checkmark] \texttt{SemanticSceneRoomProvider}: lee \texttt{semantic\_config.json}
+        de HSSD y rasteriza polígonos de habitación sobre el grid VLMap
+  \item[\checkmark] Navegación interactiva validada en HSSD escena 102344280
+\end{itemize}
+
+\subsection{Colocación de objetos personalizados --- \textcolor{done}{COMPLETADA}}
+
+\begin{itemize}
+  \item[\checkmark] \texttt{place\_objects.py}: define objetos 3D (.glb) via JSON config
+  \item[\checkmark] Carga automática al iniciar; objetos visibles para YOLOE pero NO en VLMap
+\end{itemize}
+
+\subsection{Bugs conocidos pendientes}
+
+\begin{itemize}
+  \item[\textcolor{bugcol}{$\circ$}] \textbf{IndexError boundary}: goal exactamente en el
+        borde del obstacle map (\texttt{index 193 is out of bounds for size 193}).
+        Fix: clamp en \texttt{plan\_path\_only()} antes de \texttt{plan\_to()}
+  \item[\textcolor{bugcol}{$\circ$}] \textbf{YOLOE conf\_thresh bajo}: umbral actual 0.25;
+        demasiado permisivo para verificación de llegada
+\end{itemize}
+
+\subsection{Resumen de estado}
+
+\begin{center}
+\begin{tabular}{ll}
+\toprule
+\textbf{Componente} & \textbf{Estado} \\
+\midrule
+Infraestructura Docker + Habitat + VLMaps & \textcolor{done}{Hecho} \\
+Navegación interactiva M2 (BFS + colisiones) & \textcolor{done}{Hecho} \\
+Mapper LLM (objeto $\rightarrow$ cats + rooms) & \textcolor{done}{Hecho} \\
+YOLOE persistente + scan $360^\circ$ & \textcolor{done}{Hecho} \\
+Visual centering (servo YOLOE) & \textcolor{done}{Hecho} \\
+Filtros de calidad (coherencia, área, pared) & \textcolor{done}{Hecho} \\
+Integración HSSD completa & \textcolor{done}{Hecho} \\
+Camino sin teletransporte & \textcolor{done}{Hecho} \\
+Room-based reasoning (LLM) & \textcolor{done}{Hecho} \\
+Colocación objetos personalizados & \textcolor{done}{Hecho} \\
+\midrule
+Bug: IndexError boundary & \textcolor{bugcol}{Pendiente fix} \\
+Bug: conf\_thresh YOLOE bajo & \textcolor{bugcol}{Pendiente fix} \\
+\midrule
+Heatmap region analysis (fórmula quality) & \textcolor{pendingcol}{Pendiente} \\
+M1 baseline (aleatorio) & \textcolor{pendingcol}{Pendiente} \\
+M3 baseline (VLMap quality ranking) & \textcolor{pendingcol}{Pendiente} \\
+LLM iterativo con contexto de búsqueda & \textcolor{pendingcol}{Pendiente} \\
+Extensión semántica abierta (objetos no-VLMap) & \textcolor{pendingcol}{Siguiente sesión} \\
+M4: fórmula híbrida + look-while-move & \textcolor{pendingcol}{Pendiente} \\
+M5: viewpoints + frontier exploration & \textcolor{pendingcol}{Pendiente} \\
+Evaluación cuantitativa automática & \textcolor{pendingcol}{Pendiente} \\
+Wrapper ROS 1 Noetic (Toyota HSR) & \textcolor{pendingcol}{Pendiente} \\
+\midrule
+Etiquetado LabelMe (MP3D, 3 escenas) & \textcolor{partialcol}{Pipeline lista} \\
+VLMaps JeFG25nYj2p, Uxmj2M2itWa & \textcolor{partialcol}{Escenas descargadas} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Actualización actual: búsqueda de objetos en HSSD (15 mayo 2026)}
+% ─────────────────────────────────────────────────────────────────────────────
+
+\subsection{Cambio de arquitectura: búsqueda \textit{room-first}}
+
+El flujo actual ya no debe empezar inspeccionando candidatos sueltos del heatmap global.
+Para objetos pequeños o de vocabulario abierto, la política correcta es:
+
+\begin{enumerate}
+  \item Parsear la instrucción y resolver el objeto canónico para YOLOE.
+  \item Elegir primero la habitación: habitación explícita del usuario si existe;
+        si no, habitación fijada por priors/LLM.
+  \item Navegar a esa habitación usando exclusivamente la región LabelMe/manual
+        disponible en \texttt{room\_map}.
+  \item Generar una sola vez los puntos de exploración dentro de la zona navegable
+        de esa habitación, enfocados por muebles o zonas VLMaps candidatas
+        (\texttt{counter}, \texttt{table}, \texttt{cabinet}, etc.) cuando haya
+        evidencia útil.
+  \item Ejecutar una única exploración de habitación. No hay una rutina previa de
+        \textit{pin-sweep} ni visitas a muebles antes de generar los puntos.
+\end{enumerate}
+
+Esto unifica dos casos que antes se comportaban distinto:
+\textit{``find the bottle''} y \textit{``go to the kitchen and find the bottle''}.
+Ambos deben entrar primero en la habitación objetivo y después ejecutar la misma
+máquina de estados de búsqueda.
+
+\subsection{Máquina de estados operativa}
+
+\begin{center}
+\begin{tabular}{p{0.28\linewidth}p{0.62\linewidth}}
+\toprule
+\textbf{Estado} & \textbf{Responsabilidad} \\
+\midrule
+\texttt{PARSE\_INSTRUCTION} &
+Resolver objetivo canónico, etiqueta YOLOE, muebles surrogate y habitaciones probables. \\
+\texttt{ROOM\_SELECT} &
+Elegir habitación: explícita/pinned $>$ priors $>$ likely rooms del LLM. \\
+\texttt{ROOM\_STAGE} &
+Mover el robot hasta una celda segura dentro de la habitación LabelMe/manual. \\
+\texttt{GENERATE\_EXPLORE\_POINTS} &
+Construir puntos de exploración una sola vez sobre espacio navegable real de la habitación. \\
+\texttt{ZONE\_EXPLORE} &
+Recorrer el circuito de puntos. En cada punto se hace barrido limitado; durante el trayecto
+YOLOE puede disparar una detección de baja confianza. \\
+\texttt{APPROACH\_DETECTION} &
+Si YOLOE detecta con umbral bajo ($\geq 0{,}40$), se aborta la exploración y se pasa a
+aproximación. La detección baja nunca cuenta como éxito. \\
+\texttt{NAVIGABLE\_APPROACH} &
+Calcular el punto navegable libre más cercano a la detección y aproximarse con A*/navmesh,
+manteniendo YOLOE activo durante el movimiento. El avance frontal directo queda solo como
+fallback corto. \\
+\texttt{FINAL\_CONFIRMATION} &
+Confirmar desde cerca. Si YOLOE $\geq 0{,}80$, el objetivo queda encontrado. Si YOLOE
+$\geq 0{,}75$ pero $<0{,}80$, se marca como alta probabilidad y se detiene la exploración. \\
+\texttt{FOUND / HIGH\_PROBABILITY / FAILED} &
+Estados terminales de la instrucción. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{Reglas de confirmación YOLOE}
+
+\begin{itemize}
+  \item \textbf{Baja confianza} ($\geq 0{,}40$): solo dispara aproximación; nunca es éxito.
+  \item \textbf{Alta probabilidad} ($\geq 0{,}75$): se considera que el objeto probablemente
+        está visto; se aborta la exploración para no seguir buscando otro objeto parecido.
+  \item \textbf{Confirmación final} ($\geq 0{,}80$): éxito real. Se congela la detección
+        visual y el mapa marca el objetivo como encontrado.
+  \item Durante \texttt{NAVIGABLE\_APPROACH}, YOLOE se evalúa en cada paso. Si aparece
+        una confirmación $\geq 0{,}80$, se para la ruta inmediatamente y se marca éxito.
+\end{itemize}
+
+\subsection{Generación de puntos de exploración}
+
+La generación actual se basa en la máscara navegable de la habitación, no en una caja
+rectangular. El selector usa:
+
+\begin{itemize}
+  \item \texttt{room\_mask \& free\_map} como dominio real.
+  \item Candidatos por niveles de clearance para no perder zonas estrechas.
+  \item Agrupación/cobertura espacial sobre celdas navegables reales.
+  \item Ordenación como circuito empezando por el punto más cercano al robot.
+  \item Depuración visual en \texttt{data/vlmaps\_dataset\_hssd/<scene>/debug/}.
+\end{itemize}
+
+El ratio automático se ha reducido para evitar demasiados puntos. El menú usa por defecto
+modo automático con base menor y cap reducido; si una habitación es grande se añaden más
+puntos, pero no tantos como para convertir la búsqueda en exploración exhaustiva.
+
+\subsection{Aproximación segura al objeto}
+
+El comportamiento deseado no es ``ir recto hacia la botella''. Cuando YOLOE detecta un
+objeto, la aproximación debe:
+
+\begin{enumerate}
+  \item estimar la celda objetivo desde la vista actual;
+  \item buscar un standoff navegable alrededor de esa celda;
+  \item planificar con A*/navmesh respetando obstáculos y, si aplica, la habitación fijada;
+  \item mantener YOLOE activo durante la ruta;
+  \item confirmar en cuanto la confianza supere $0{,}80$.
+\end{enumerate}
+
+Se ha eliminado la orientación hacia ``evidencia VLMaps cercana'' al llegar a un punto de
+exploración. Esa acción confundía el flujo: hacía que el robot girase hacia muebles
+candidatos en vez de mantener el objetivo visual detectado.
+
+\subsection{Colocación de objetos personalizados}
+
+Los objetos añadidos manualmente en HSSD se regeneran con separación mínima entre instancias
+para evitar solapamientos. En la escena \texttt{108736884\_177263634\_4}, los objetos de cocina
+quedan separados en el plano XZ por más de 2 m entre sí, evitando el problema anterior de
+objetos superpuestos sobre el mismo counter/cabinet. También se retiraron los libros rosas
+añadidos para pruebas anteriores.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Los 5 métodos de búsqueda}
+% ─────────────────────────────────────────────────────────────────────────────
+
+Todos comparten la misma infraestructura (visgraph, navegación, visualización).
+Lo que cambia es la \textbf{estrategia de selección de goal} y el comportamiento
+durante el tránsito.
+
+\subsection{M1: Búsqueda aleatoria (baseline)}
+
+\begin{itemize}
+  \item \textbf{Goal selection}: punto aleatorio navegable del mapa.
+  \item \textbf{Verificación}: YOLOE al llegar.
+  \item \textbf{Si no encuentra}: otro punto aleatorio.
+  \item \textbf{Estado}: \textcolor{pendingcol}{No implementado}.
+\end{itemize}
+
+\subsection{M2: Candidato más cercano por BFS (implementado)}
+
+\begin{itemize}
+  \item \textbf{Goal selection}: si el objeto está en VLMap, BFS al más cercano.
+        Si no, mapper LLM $\rightarrow$ categorías relacionadas $\rightarrow$ BFS al mueble más cercano.
+  \item \textbf{Verificación}: YOLOE al llegar (scan $0^\circ$, $\pm 30^\circ$) para indirectos.
+        VLMap para directos.
+  \item \textbf{Si no encuentra}: siguiente candidato por distancia (hasta 8 candidatos).
+  \item \textbf{Estado}: \textcolor{done}{Implementado y funcional}.
+\end{itemize}
+
+\subsection{M3: Búsqueda semántica (VLMap quality ranking)}
+
+\begin{itemize}
+  \item \textbf{Goal selection}: candidatos ordenados por heatmap region quality
+        (fórmula: $0{,}3 \cdot \text{area} + 0{,}4 \cdot \text{mean\_score} + 0{,}3 \cdot
+        \text{density}$).
+  \item \textbf{Verificación}: YOLOE al llegar.
+  \item \textbf{Estado}: \textcolor{pendingcol}{No implementado} (requiere Paso B).
+\end{itemize}
+
+\subsection{M4: Selección híbrida + navegación activa}
+
+\begin{itemize}
+  \item \textbf{Goal selection}: fórmula híbrida
+        $\text{score}(c) = \alpha \cdot \text{visual}(c) + \beta \cdot \text{semantic}(c)
+        - \gamma \cdot \text{cost}(c)$.
+  \item \textbf{Durante tránsito}: look-while-move + re-routing si detecta candidato mejor.
+  \item \textbf{Estado}: \textcolor{pendingcol}{No implementado}.
+\end{itemize}
+
+\subsection{M5: Sistema completo}
+
+\begin{itemize}
+  \item \textbf{Goal selection}: igual que M4 + viewpoint planning (4 poses alrededor)
+        + frontier exploration.
+  \item \textbf{Estado}: \textcolor{pendingcol}{No implementado}.
+\end{itemize}
+
+\begin{center}
+\begin{tabular}{llllll}
+\toprule
+\textbf{Método} & \textbf{Goal sel.} & \textbf{Look-move} & \textbf{Re-route} &
+\textbf{Viewpoints} & \textbf{Estado} \\
+\midrule
+M1 & Random & No & No & No & \textcolor{pendingcol}{Pendiente} \\
+M2 & BFS dist & No & No & No & \textcolor{done}{Hecho} \\
+M3 & VLMap quality & No & No & No & \textcolor{pendingcol}{Pendiente} \\
+M4 & $\alpha v + \beta s - \gamma c$ & Sí & Sí & Frontal & \textcolor{pendingcol}{Pendiente} \\
+M5 & $\alpha v + \beta s - \gamma c$ & Sí & Sí & 4 ángulos & \textcolor{pendingcol}{Pendiente} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Plan de implementación: próximos pasos}
+% ─────────────────────────────────────────────────────────────────────────────
+
+\subsection{Paso A --- Bugs inmediatos (prioridad alta, 1 sesión)}
+
+\textbf{A1 --- IndexError boundary} (1 línea).
+En \texttt{plan\_path\_only()} de \texttt{habitat\_lang\_robot.py}, clamp antes de llamar
+a \texttt{self.nav.plan\_to()}:
+
+\begin{verbatim}
+pos = [
+    min(pos[0], self.nav.obs_map.shape[0] - 1),
+    min(pos[1], self.nav.obs_map.shape[1] - 1),
+]
+\end{verbatim}
+
+No se modifica \texttt{navigation\_utils.py} (código original de vlmaps). El clamp va en
+el código propio, antes de la llamada.
+
+\textbf{A2 --- Umbral de confianza YOLOE}.
+Subir \texttt{conf\_thresh}:
+\begin{itemize}
+  \item Stage 1 y 3 (verificación de llegada): \textbf{0.45} --- si el robot está frente
+        al objeto, debe verlo con alta confianza.
+  \item Stage 2 (scan $360^\circ$): \textbf{0.30} --- el objeto puede aparecer parcialmente o
+        de lado durante el giro.
+\end{itemize}
+
+\subsection{Paso B --- Heatmap region analysis completo (1--2 sesiones)}
+
+Implementar la función de calidad por región del heatmap:
+\[
+  \text{quality}(r) = 0{,}3 \cdot \text{norm(area)} + 0{,}4 \cdot \text{mean\_score}
+  + 0{,}3 \cdot \text{density}
+\]
+
+Donde:
+\begin{itemize}
+  \item $\text{norm(area)}$: área del componente normalizada respecto al mayor componente
+  \item $\text{mean\_score}$: puntuación CLIP media de los voxels del componente
+  \item $\text{density}$: fracción de celdas activas dentro del bounding box del componente
+\end{itemize}
+
+Los metadatos por componente ya se calculan en \texttt{postprocess\_heatmap()} (área, max,
+media, bbox, centroide, score). Solo hay que combinarlos en esta fórmula y exponerlos
+para que el selector de goal los use.
+
+Esto es el prerequisito directo para M3.
+
+\subsection{Paso C --- Baselines M1 y M3 (1 sesión)}
+
+\textbf{M1 (aleatorio)}: seleccionar un punto navegable aleatorio del mapa como goal.
+Sirve como baseline mínimo para demostrar que VLMaps aporta valor.
+
+\textbf{M3 (semántico)}: en lugar de ir al candidato más cercano por BFS (M2), ir al
+candidato con mayor \texttt{quality} score (Paso B). Esto mide si la información semántica
+del heatmap mejora sobre la proximidad pura.
+
+\subsection{Paso D --- Razonamiento semántico iterativo con LLM (1--2 sesiones)}
+
+\textit{Inspirado conceptualmente en MoMa-LLM (Honerkamp et al., RSS SemRob 2024).
+Implementación propia desde cero, sin uso del código del repositorio de Toyota Motor Europe.}
+
+Mejorar el Mapper LLM para incluir \textbf{contexto del estado actual de búsqueda}.
+En lugar de que el LLM decida categorías una sola vez al principio, recibe también:
+
+\begin{itemize}
+  \item Qué habitaciones tiene la escena
+        (de \texttt{SemanticSceneRoomProvider} para HSSD o LabelMe para MP3D)
+  \item Qué candidatos se han visitado ya y cuál fue el resultado
+        (fallado / confirmado por YOLOE)
+  \item Qué habitaciones se han explorado
+\end{itemize}
+
+El LLM recibe este contexto estructurado y decide dónde buscar a continuación. Ejemplo:
+
+\begin{verbatim}
+Scene rooms: kitchen, living_room, bedroom_1, bedroom_2
+Already searched:
+  - table in living_room: YOLOE not found
+  - counter in kitchen: YOLOE not found
+Remaining candidates: shelving in office, table in bedroom_1
+Where should the robot go next, and why?
+\end{verbatim}
+
+Esto convierte M2 en un método adaptativo. Se implementa como extensión del Mapper LLM
+existente, añadiendo el historial de búsqueda como campo adicional en el prompt.
+
+\subsection{Paso E --- Evaluación cuantitativa (1--2 sesiones)}
+
+Script automático que ejecuta $N$ trials con objetos conocidos y mide:
+
+\begin{itemize}
+  \item \textbf{Success Rate (SR)}: fracción de episodios donde el objeto se encuentra
+  \item \textbf{Correct First Goal}: fracción donde el primer candidato visitado es correcto
+  \item \textbf{Path Length (SPL)}: distancia total recorrida normalizada por el óptimo
+  \item \textbf{Wrong Visits}: candidatos visitados antes del correcto
+  \item \textbf{Time to Find}: pasos de simulación hasta encontrar
+\end{itemize}
+
+Output: CSV con resultados + gráficas comparativas M1 vs M2 vs M3 para la memoria del TFG.
+
+Para HSSD: usar los objetos con anotaciones nativas del \texttt{semantic\_config.json}
+para generar trials con ground truth automatizado.
+
+\subsection{Paso F --- M4: fórmula híbrida + look-while-move (2--3 sesiones)}
+
+Goal selection con fórmula híbrida:
+\[
+  \text{score}(c) = \alpha \cdot \text{visual}(c) + \beta \cdot \text{semantic}(c)
+  - \gamma \cdot \text{cost}(c)
+\]
+
+Durante el tránsito: si el robot pasa cerca de un hotspot VLMap relevante, ejecuta
+una verificación YOLOE lateral sin detenerse. Si detecta el objeto, re-routing inmediato.
+
+\subsection{Paso G --- M5: viewpoints + frontier exploration (3--4 sesiones)}
+
+\textbf{Viewpoints}: al llegar a un candidato, el robot se coloca en 4 puntos alrededor
+(a 1,5 m, cada $90^\circ$) y ejecuta YOLOE desde cada uno. Reduce falsos negativos por oclusión.
+
+\textbf{Frontiers}: si se agotan todos los candidatos, explorar zonas inexploradas
+priorizando las cercanas a regiones VLMap relevantes.
+
+\subsection{Paso H --- Wrapper ROS 1 Noetic para Toyota HSR (extensión)}
+
+\begin{itemize}
+  \item \texttt{vlmap\_server} node: carga VLMap, expone servicio \texttt{/vlmap/query}
+  \item \texttt{vlmap\_nav} node: recibe instrucciones, parsea con LLM, envía goals
+        a \texttt{move\_base}
+  \item Visualización en RViz: heatmap como \texttt{OccupancyGrid},
+        path como \texttt{nav\_msgs/Path}
+\end{itemize}
+
+\subsection{Orden de implementación}
+
+\begin{center}
+\begin{tabular}{clll}
+\toprule
+\textbf{Prioridad} & \textbf{Paso} & \textbf{Depende de} & \textbf{Estado} \\
+\midrule
+--- & M2 + YOLOE persistente & --- & \textcolor{done}{Hecho} \\
+--- & HSSD integración completa & --- & \textcolor{done}{Hecho} \\
+\midrule
+1 & A: Fix IndexError boundary + conf\_thresh & --- & \textcolor{pendingcol}{Pendiente} \\
+2 & B: Heatmap region analysis & --- & \textcolor{pendingcol}{Pendiente} \\
+3 & C: M1 + M3 baselines & Paso B & \textcolor{pendingcol}{Pendiente} \\
+4 & D: LLM iterativo con contexto & --- & \textcolor{pendingcol}{Pendiente} \\
+5 & E: Evaluación cuantitativa & Pasos C, D & \textcolor{pendingcol}{Pendiente} \\
+6 & F: M4 híbrido & Paso B & \textcolor{pendingcol}{Pendiente} \\
+7 & G: M5 viewpoints + frontiers & Paso F & \textcolor{pendingcol}{Pendiente} \\
+8 & H: Wrapper ROS Noetic & --- & \textcolor{pendingcol}{Pendiente} \\
+\midrule
+--- & Etiquetado LabelMe (MP3D) & --- & \textcolor{partialcol}{Pipeline lista} \\
+--- & VLMaps JeFG25nYj2p, Uxmj2M2itWa & --- & \textcolor{partialcol}{Pendiente} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Referencia: MoMa-LLM}
+% ─────────────────────────────────────────────────────────────────────────────
+
+El paper \textit{Language-Grounded Dynamic Scene Graphs for Interactive Object Search
+with Mobile Manipulation} (Honerkamp et al., RSS SemRob 2024) propone construir un
+scene graph dinámico mientras el robot explora y usar un LLM para razonar sobre él.
+
+El código asociado (\url{https://github.com/robot-learning-freiburg/MoMa-LLM}) es
+propiedad de Toyota Motor Europe NV/SA y no puede usarse sin licencia expresa. Ninguna
+línea de ese código se utiliza en este TFG.
+
+Las ideas conceptuales del paper (representación estructurada del estado para el LLM,
+room classification a partir de objetos observados, scoring semántico de fronteras)
+se usan como inspiración para el Paso D, con implementación completamente propia.
+
+Diferencia principal: MoMa-LLM construye el mapa dinámicamente durante la exploración;
+este TFG usa un VLMap pre-construido, lo que permite evaluación más controlada y
+comparación directa entre métodos (M1--M5).
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Archivos clave del proyecto}
+% ─────────────────────────────────────────────────────────────────────────────
+
+\begin{center}
+\begin{tabular}{ll}
+\toprule
+\textbf{Archivo} & \textbf{Rol} \\
+\midrule
+\texttt{application/interactive\_object\_nav.py} &
+  Pipeline de navegación principal \\
+\texttt{vlmaps/robot/habitat\_lang\_robot.py} &
+  Robot + visgraph + \texttt{plan\_path\_only} \\
+\texttt{vlmaps/utils/llm\_utils.py} &
+  Mapper LLM: objeto $\rightarrow$ categorías + habitaciones \\
+\texttt{vlmaps/utils/yoloe\_utils.py} &
+  YoloeSession: worker persistente, sync/async \\
+\texttt{vlmaps/utils/\_yoloe\_persistent\_worker.py} &
+  Subprocess YOLOE aislado \\
+\texttt{vlmaps/utils/room\_provider.py} &
+  SemanticSceneRoomProvider (HSSD nativo) \\
+\texttt{vlmaps/utils/navigation\_utils.py} &
+  \texttt{plan\_to\_pos\_v2}: visgraph + BFS \\
+\texttt{config/object\_goal\_navigation\_cfg.yaml} &
+  Config Hydra principal \\
+\texttt{docker/menu.sh} &
+  Menú interactivo Docker \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Historial de actualizaciones}
+% ─────────────────────────────────────────────────────────────────────────────
+
+\subsection*{31 de marzo de 2026 --- Correcciones del pipeline HSSD}
+
+\begin{enumerate}
+  \item \textbf{Mapa de obstáculos invertido}: modelo de dos bandas (suelo $h<0{,}15$ m /
+        obstáculo $0{,}2 \leq h < 1{,}5$ m). Una celda navegable $= 1$ si tiene suelo Y
+        no tiene obstáculo.
+  \item \textbf{Heatmap ruidoso}: argmax binario reemplazado por score CLIP continuo con
+        umbral 0.3 + max-pooling + difusión solo desde celdas con score alto.
+  \item \textbf{Robot atraviesa paredes en HSSD}: \texttt{sim.recompute\_navmesh()} en
+        \texttt{\_setup\_sim()} cuando \texttt{dataset\_type == "hssd"}.
+  \item \textbf{Integración YOLOE}: \texttt{yoloe\_utils.py} + \texttt{\_yoloe\_worker.py},
+        superposición sobre ventana 1st person.
+  \item \textbf{Camino visible}: \texttt{path\_cells} pasado a \texttt{show\_map()},
+        color rojo.
+  \item \textbf{Cámara primera persona}: inclinación $-\pi/8$ rad ($\approx 22{,}5^\circ$).
+\end{enumerate}
+
+\subsection*{2 de abril de 2026 (primera iteración)}
+
+\begin{enumerate}
+  \item \textbf{Postproceso de heatmaps}: suavizado Gaussiano $\rightarrow$ umbral
+        relativo $\rightarrow$ metadatos por componente (área, max, media, bbox, centroide).
+  \item \textbf{Exploración $360^\circ$}: pasos de $20^\circ$, detención al detectar.
+  \item \textbf{Ruta alternativa}: componente con mayor score a $>$20 celdas.
+  \item \textbf{Movimiento fluido}: sin \texttt{set\_agent\_state()} visible.
+\end{enumerate}
+
+\subsection*{2 de abril de 2026 (segunda iteración)}
+
+\begin{enumerate}
+  \item \textbf{Worker YOLOE persistente}: modelo cargado una sola vez; protocolo
+        stdin/stdout; inferencias $\sim$100--500 ms.
+  \item \textbf{YoloeSession}: modos síncrono y asíncrono (hilo bg).
+  \item \textbf{Scan $360^\circ$ fluido}: pasos nativos de $5^\circ$, YOLOE en hilo bg.
+  \item \textbf{Cámara $-30^\circ$}: \texttt{habitat\_utils.py}.
+  \item \textbf{Standoff 0,25 m}: acercamiento máximo al objeto.
+\end{enumerate}
+
+\subsection*{13 de abril de 2026}
+
+\begin{enumerate}
+  \item \textbf{Bug protocolo stdout/stderr YOLOE}: \texttt{\_ensure\_mobileclip()} imprimía
+        en stdout interceptando el \texttt{READY}; corregido a \texttt{sys.stderr}.
+        \texttt{start()} ahora lee hasta recibir \texttt{READY} (no solo una línea).
+  \item \textbf{mobileclip\_blt.ts}: búsqueda en múltiples rutas candidatas;
+        eliminación automática de versión corrupta (menos de 100 MB).
+  \item \textbf{Captura stderr del worker}: crashes visibles en consola.
+  \item \textbf{Dirección de cara definitiva}: $\arctan2(-\Delta y, -\Delta x)$,
+        signo consistente con el planificador.
+  \item \textbf{Sin teletransporte}: \texttt{plan\_path\_only()} + camino 800 ms antes
+        de ejecutar.
+  \item \textbf{Hydra corregido}: \texttt{scene\_dataset\_config\_file} sin prefijo
+        \texttt{+} en ejecución y documentación de \texttt{menu.sh}.
+  \item \textbf{Repositorio GitHub limpio}: \texttt{mobileclip\_blt.ts} (571 MB)
+        eliminado del historial con \texttt{git-filter-repo}; push operativo.
+  \item \textbf{Bugs conocidos}: IndexError boundary + conf\_thresh YOLOE bajo.
+\end{enumerate}
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Situación actual y próximos pasos — 13 de abril de 2026}
+% ─────────────────────────────────────────────────────────────────────────────
+
+\subsection{Estado del proyecto}
+
+A fecha de 13 de abril de 2026, el sistema de navegación semántica M2 está completamente
+operativo en escenas MP3D y HSSD. El robot recibe una query en lenguaje natural, genera un
+heatmap semántico con VLMaps + CLIP, navega hasta la posición más probable del objeto y
+verifica visualmente la detección con YOLOE. Las integraciones críticas completadas en esta
+fecha son:
+
+\begin{itemize}
+  \item \textbf{Bug A1 resuelto}: IndexError en \texttt{Navigator.plan\_to()} cuando el goal
+        cae exactamente en el borde del mapa de obstáculos --- se añade un clamp
+        $[0,\,h{-}1]\times[0,\,w{-}1]$ sobre las coordenadas del goal en el mapa recortado.
+  \item \textbf{Bug A2 resuelto}: umbral de confianza YOLOE subido de 0,25 a 0,40 para
+        reducir falsas detecciones.
+  \item \textbf{Frame de detección congelado}: cuando YOLOE confirma el objeto, la ventana
+        \textit{1st person} muestra el frame anotado (con bbox) hasta que se inicia una nueva
+        búsqueda, en lugar de volver al feed en vivo.
+  \item \textbf{Paso B implementado}: fórmula de calidad de región añadida a
+        \texttt{postprocess\_heatmap()} --- los componentes se ordenan por calidad en lugar
+        de por score bruto.
+\end{itemize}
+
+\subsection{Flujo completo del heatmap (implementado)}
+
+El heatmap es la representación 2D de la probabilidad semántica de encontrar el objeto
+buscado en cada celda del mapa. El flujo completo, implementado en
+\texttt{application/interactive\_object\_nav.py}, es el siguiente:
+
+\subsubsection*{Paso 1 — Scores CLIP por vóxel}
+
+Cada vóxel del mapa 3D tiene asociado un vector de scores CLIP de dimensión
+$|\mathcal{C}|$ (número de categorías). Para una query dada, se extrae el score
+$s_i \in [0,1]$ de cada vóxel $i$ para la categoría objetivo. Solo se retienen los
+vóxeles en los que esa categoría tiene el argmax y el score supera un umbral mínimo
+($s_i > 0{,}3$).
+
+\subsubsection*{Paso 2 — Proyección 2D (max-pool por columna)}
+
+Los scores 3D se proyectan sobre el plano del suelo tomando el máximo por celda
+$(r, c)$. El resultado es un heatmap flotante de tamaño $gs \times gs$
+(por defecto $gs = 960$).
+
+\subsubsection*{Paso 3 — Difusión por distancia}
+
+Se aplica una difusión espacial ligera basada en \texttt{distance\_transform\_edt}:
+las celdas adyacentes a celdas activas reciben score propagado con una caída lineal
+($\times 0{,}3$ por celda). Las celdas con score $< 0{,}15$ se anulan, limitando la
+difusión a una franja de $\sim$3 celdas (15 cm).
+
+\subsubsection*{Paso 4 — Suavizado Gaussiano}
+
+Se aplica un \textit{Gaussian blur} con kernel $5\times5$ y $\sigma=1{,}0$ para
+suprimir ruido de alta frecuencia y reforzar las regiones espacialmente coherentes.
+
+\subsubsection*{Paso 5 — Umbral relativo y componentes conectados}
+
+Se binariza el heatmap suavizado con un umbral relativo:
+\[
+  t = \texttt{rel\_thresh} \times \max(\text{heatmap suavizado}), \quad
+  \texttt{rel\_thresh} = 0{,}5
+\]
+Sobre la máscara binaria resultante se calculan los componentes conexos
+(8-conectividad, \texttt{cv2.connectedComponentsWithStats}). Para cada componente
+$r$ se extraen: área, score máximo, score medio, score suma, bounding box y centroide.
+
+\subsubsection*{Paso 6 — Scoring interno y filtro relativo}
+
+Cada componente recibe un score interno para decidir si se descarta:
+\[
+  \textit{score}(r) = \textit{mean\_val}(r) \cdot \log(1 + \textit{area}(r))
+\]
+Se descartan los componentes cuyo score sea inferior al 20\,\% del mejor:
+\[
+  \textit{score}(r) \geq 0{,}2 \cdot \max_j \textit{score}(j)
+\]
+Esto elimina islas pequeñas y dispersas sin reglas manuales por categoría.
+
+\subsubsection*{Paso 7 — Fórmula de calidad (Paso B)}
+
+Sobre los componentes supervivientes se calcula una métrica de calidad que combina
+tres dimensiones complementarias:
+\[
+  \textit{quality}(r) = 0{,}3 \cdot \widehat{\textit{area}}(r)
+                      + 0{,}4 \cdot \overline{s}(r)
+                      + 0{,}3 \cdot \delta(r)
+\]
+donde:
+\begin{itemize}
+  \item $\widehat{\textit{area}}(r) = \textit{area}(r) \,/\, \max_j \textit{area}(j)$
+        --- área normalizada respecto al componente mayor (0--1).
+  \item $\overline{s}(r) = \textit{mean\_val}(r)$ --- score CLIP medio de los vóxeles
+        del componente (ya en 0--1).
+  \item $\delta(r) = \textit{area}(r) \,/\, (w_r \cdot h_r)$ --- densidad: fracción de
+        celdas activas dentro del bounding box del componente (0--1).
+\end{itemize}
+Los componentes se ordenan por $\textit{quality}$ de mayor a menor. El de mayor calidad
+es el goal primario de navegación; el siguiente candidato se usa como ruta alternativa.
+
+\subsubsection*{Paso 8 — Selección del goal}
+
+\texttt{select\_safe\_goal\_from\_path()} recorre el camino planificado hacia el
+standoff del componente y elige el último waypoint que tiene score de heatmap no nulo,
+garantizando que el robot se detiene frente al objeto con visibilidad directa.
+
+\subsection{Resultados recientes --- 24 de abril de 2026}
+
+Durante la iteración del 24 de abril se ha ejecutado una evaluación en dos
+fases sobre las tres escenas HSSD ya integradas:
+\texttt{102344193\_0}, \texttt{102344280\_0} y
+\texttt{108736884\_177263634\_4}.
+
+\paragraph{Fase 1 --- comparación de heatmaps.} Se generó una batería
+\emph{stressed\_heatmap} y se expandió hasta 500 queries por escena. El
+objetivo era aislar el efecto del postprocesado del heatmap sin mezclarlo con
+el comportamiento del orquestador. El resultado agregado fue:
+
+\begin{itemize}
+  \item \textbf{Ganador global:} \texttt{postprocessed}.
+  \item \textbf{Escena \texttt{102344193\_0}:}
+        \texttt{hit@1} empata ($0{,}43 \rightarrow 0{,}43$), pero
+        \texttt{mass\_in\_expected\_ratio} mejora
+        ($0{,}374 \rightarrow 0{,}400$).
+  \item \textbf{Escena \texttt{102344280\_0}:}
+        mejora clara en \texttt{hit@1}
+        ($0{,}316 \rightarrow 0{,}414$),
+        mejora en \texttt{mass\_in\_expected\_ratio}
+        ($0{,}281 \rightarrow 0{,}310$) y reducción de
+        \texttt{wrong\_room\_mass\_ratio}
+        ($0{,}577 \rightarrow 0{,}551$).
+  \item \textbf{Escena \texttt{108736884\_177263634\_4}:}
+        mejora moderada en \texttt{hit@1}
+        ($0{,}326 \rightarrow 0{,}352$),
+        mejora en \texttt{mass\_in\_expected\_ratio}
+        ($0{,}276 \rightarrow 0{,}298$) y ligera reducción de masa en
+        habitaciones incorrectas.
+\end{itemize}
+
+\paragraph{Interpretación.} El postprocesado \textbf{no mejora todas las
+métricas geométricas} del heatmap: \texttt{hit@5} empeora en dos escenas,
+\texttt{iou\_topmass50} empeora en las tres y \texttt{n\_components} permanece
+igual. Sin embargo, sí mejora las métricas que mejor capturan la utilidad
+práctica del mapa para navegación semántica:
+\begin{itemize}
+  \item \textbf{\texttt{hit@1}}: la primera hipótesis cae más veces en la zona
+        correcta.
+  \item \textbf{\texttt{mass\_in\_expected\_ratio}}: la masa se concentra mejor
+        donde debería.
+  \item \textbf{\texttt{wrong\_room\_mass\_ratio}}: baja la masa derramada en
+        habitaciones incorrectas en dos de las tres escenas.
+\end{itemize}
+La conclusión práctica es que \textbf{el postprocesado sí merece la pena} como
+configuración base, no porque ``gane en todo'', sino porque mejora la calidad
+de la \emph{hipótesis principal}, que es lo que realmente utiliza el sistema al
+elegir el siguiente candidato.
+
+\paragraph{Fase 2 --- comparación de orquestadores con heatmap fijo.} Fijado el
+heatmap ganador (\texttt{Hp}), se compararon únicamente los dos métodos del eje
+de orquestación: \texttt{Ob\_Hp} (baseline) y \texttt{Oe\_Hp} (executor). La
+batería \emph{stressed\_orchestrator} se expandió hasta 100 queries por método
+y por escena.
+
+El agregado cross-scene da:
+\begin{center}
+\begin{tabular}{lcccc}
+\toprule
+\textbf{Método} & \textbf{SR} & \textbf{Wrong Visits} &
+\textbf{Mean Pose Updates} & \textbf{Early Stop Rate} \\
+\midrule
+\texttt{Ob\_Hp} & 0.6667 & 0.1600 & 382.44 & 0.1000 \\
+\texttt{Oe\_Hp} & 0.6167 & 1.1800 & 431.58 & 0.0267 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\paragraph{Interpretación.} En este batch estresado, el executor \textbf{no
+supera} al baseline una vez fijado el heatmap postprocesado. Aunque mejora
+ligeramente algunas métricas intermedias (\texttt{CT2R},
+\texttt{Rooms Before Success}, \texttt{Early Stop Rate}), pierde en las
+métricas principales:
+\begin{itemize}
+  \item \textbf{menor SR global} ($0{,}6167$ frente a $0{,}6667$),
+  \item \textbf{muchas más visitas erróneas}
+        ($1{,}18$ frente a $0{,}16$),
+  \item \textbf{más coste de navegación}
+        ($431{,}58$ frente a $382{,}44$ pose updates de media).
+\end{itemize}
+
+\paragraph{Caveats.} La escena \texttt{102344193\_0} aporta menos evidencia que
+las otras dos porque su batería estresada original solo contenía 7 queries
+únicas y hubo que expandirla por repetición para llegar a 100/500 muestras.
+Además, el wrapper del orquestador produjo un \texttt{aggregate\_cross\_scenes\_pruned}
+vacío por un bug de postprocesado del agregado; los resultados válidos son los
+del \texttt{aggregate\_cross\_scenes.csv} bruto, no los del fichero
+\texttt{pruned}.
+
+\paragraph{Conclusión metodológica.} La separación en dos fases tiene sentido y
+ha resultado informativa:
+\begin{enumerate}
+  \item \textbf{Fase 1:} \texttt{Hp} se adopta como heatmap base porque mejora
+        la hipótesis principal y reduce ruido útil.
+  \item \textbf{Fase 2:} una vez fijado \texttt{Hp}, el baseline
+        \texttt{Ob\_Hp} sigue siendo, por ahora, el método más sólido y
+        equilibrado.
+\end{enumerate}
+En otras palabras: \textbf{el postprocesado aporta valor real}, mientras que
+\textbf{el executor todavía no justifica su sobrecoste} en esta batería
+estresada.
+
+\subsection{Próximos pasos}
+
+\subsubsection*{Paso C — Métodos baseline M1 y M3 (1--2 sesiones)}
+
+\begin{itemize}
+  \item \textbf{M1 — Navegación aleatoria}: el robot elige celdas navegables al azar
+        como goals sucesivos. Sirve como cota inferior de rendimiento en la evaluación.
+  \item \textbf{M3 — Ranking por calidad}: usa directamente el campo \texttt{quality}
+        ya disponible en \texttt{kept\_components} para ordenar los goals y navegar
+        en orden decreciente de calidad. Prerequisito directo: Paso B (ya implementado).
+\end{itemize}
+
+\subsubsection*{Paso D --- Razonamiento LLM iterativo con contexto (2--3 sesiones)}
+
+Inspirado en MoMa-LLM (RSS SemRob 2024), sin usar código propietario de Toyota.
+El robot mantiene un registro de contexto de búsqueda: habitaciones visitadas,
+candidatos probados y resultado (encontrado / no encontrado). En cada iteración
+fallida, este contexto se pasa a un LLM (GPT-4o o similar) con un prompt del tipo:
+
+\begin{quote}
+\textit{«Busco \{objeto\}. He visitado \{habitaciones\}. He probado los candidatos
+\{lista\} sin éxito. ¿En qué tipo de habitación o zona debería buscar ahora?»}
+\end{quote}
+
+El LLM devuelve una sugerencia de zona o tipo de habitación, que se mapea a una
+región del mapa usando el mapa de habitaciones ya disponible. Implementación desde
+cero, sin dependencias del repositorio de MoMa-LLM.
+
+\subsubsection*{Paso E --- Script de evaluación cuantitativa (1 sesión)}
+
+Métricas estándar de navegación semántica:
+\begin{itemize}
+  \item \textbf{SR} (Success Rate): fracción de episodios en los que YOLOE confirma
+        la detección.
+  \item \textbf{SPL} (Success weighted by Path Length): SR ponderado por la eficiencia
+        del camino recorrido.
+  \item \textbf{Wrong Visits}: número de goals visitados sin detección positiva antes
+        del éxito.
+  \item \textbf{Time to Find}: número de pasos de simulación hasta la confirmación.
+\end{itemize}
+
+\subsubsection*{Paso F --- M4: scoring híbrido + look-while-move (2 sesiones)}
+
+Combinar score VLMap con distancia al goal en una función única:
+\[
+  \textit{goal\_score}(g) = \alpha \cdot \textit{quality}(g)
+                           - (1-\alpha) \cdot \frac{d(g)}{d_{\max}}
+\]
+Añadir detección YOLOE asíncrona durante el desplazamiento (\textit{look-while-move}):
+el robot verifica con YOLOE cada $k$ pasos mientras navega, sin detener la ejecución.
+
+\subsubsection*{Paso G --- M5: viewpoints + exploración de fronteras (3 sesiones)}
+
+Generar candidatos de viewpoint alrededor de cada componente del heatmap (en lugar de
+un único standoff). Añadir exploración de fronteras para descubrir zonas no mapeadas
+si todos los viewpoints fallan.
+
+\subsubsection*{Paso G.5 --- Objetos no-VLMap abiertos con LLM + validación (1 sesión)}
+
+\textbf{Objetivo.} Preparar el sistema para búsquedas de nivel 3
+(\texttt{laptop}, \texttt{book}, \texttt{soap}, \texttt{vase},
+\texttt{candle}, \texttt{basket}, \texttt{printer}, \texttt{teapot}) sin
+depender todavía de ROS. La implementación debe caber en una sesión de trabajo
+y dejar la semántica lista para probarse mañana.
+
+\paragraph{Arquitectura mínima.}
+\begin{enumerate}
+  \item \textbf{Normalizador de aliases}. Añadir una capa pequeña para resolver
+        equivalencias obvias:
+        \texttt{computer}$\rightarrow$\texttt{laptop},
+        \texttt{books}$\rightarrow$\texttt{book},
+        \texttt{tea pot}$\rightarrow$\texttt{teapot},
+        \texttt{soap dispenser}$\rightarrow$\texttt{soap}.
+  \item \textbf{Prompt estructurado al LLM}. En lugar de devolver texto libre,
+        pedir un JSON con:
+\begin{verbatim}
+{
+  "canonical_target": "laptop",
+  "query_mode": "surrogate",
+  "surrogate_categories": ["desk", "table", "sofa", "bed"],
+  "likely_rooms": ["office", "bedroom"],
+  "yoloe_label": "laptop",
+  "aliases": ["computer", "notebook"]
+}
+\end{verbatim}
+  \item \textbf{Validador determinista}. Filtrar la lista de
+        \texttt{surrogate\_categories} contra
+        \texttt{get\_categories("hssd")} y quedarse solo con muebles VLMap
+        ejecutables.
+  \item \textbf{Fallback auditado}. Si el LLM falla o devuelve una salida vacía,
+        usar \texttt{object\_priors.py} como respaldo.
+  \item \textbf{Verificación YOLOE}. El target enviado a YOLOE debe ser el
+        \texttt{canonical\_target}, no el surrogate.
+\end{enumerate}
+
+\paragraph{Archivos candidatos para tocar.}
+\begin{itemize}
+  \item \texttt{vlmaps/utils/llm\_utils.py}: prompt y parseo del JSON.
+  \item \texttt{vlmaps/utils/object\_priors.py}: fallback y aliases auditados.
+  \item \texttt{application/interactive\_object\_nav.py} e
+        \texttt{interactive\_object\_nav\_executor.py}: integración del target
+        canónico y la lista validada de surrogates.
+  \item \texttt{vlmaps/policy/strategic\_policy.py}: solo si hace falta
+        propagar el target canónico al snapshot de estrategia.
+\end{itemize}
+
+\paragraph{Plan exacto para una sesión.}
+\begin{enumerate}
+  \item Crear una función nueva del estilo
+        \texttt{resolve\_open\_vocab\_target(target, available\_categories)}.
+  \item Llamarla únicamente cuando el target no pertenezca al vocabulario VLMap.
+  \item Validar que los surrogates finales sean categorías HSSD navegables.
+  \item Mantener \texttt{canonical\_target} como etiqueta de YOLOE.
+  \item Registrar en el log final: target original, target canónico y lista
+        final de surrogates.
+  \item Probar manualmente la shortlist aprobada.
+\end{enumerate}
+
+\paragraph{Criterio de salida.} El sistema debe seguir funcionando para queries
+directas VLMap y, además, ser capaz de buscar la shortlist anterior usando solo
+muebles surrogate válidos y verificación final con YOLOE.
+
+\subsubsection*{Paso H --- Wrapper ROS 1 Noetic / Toyota HSR (2--3 sesiones)}
+
+Adaptar el pipeline para el robot real Toyota HSR mediante un nodo ROS que exponga
+la misma interfaz de navegación semántica. Requiere driver de cámara RGBD, localización
+con mapa real y adaptación del sistema de coordenadas.
+
+\section{Diario de desarrollo}
+\input{project_status_and_plan_diary.tex}
+
+\end{document}
