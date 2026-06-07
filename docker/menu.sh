@@ -1,5 +1,5 @@
 #!/bin/bash
-export PYTHONPATH=/workspace/third_party/vlmaps:$PYTHONPATH
+export PYTHONPATH=/workspace/src:/workspace/third_party/vlmaps:$PYTHONPATH
 export OPENAI_KEY="${OPENAI_KEY:-$OPENAI_API_KEY}"
 APP=/workspace/third_party/vlmaps/application
 DATASET=/workspace/third_party/vlmaps/dataset
@@ -673,12 +673,12 @@ run_ros_capture_menu() {
                 python application/create_map.py \
                     "data_paths.vlmaps_data_dir=$PARENT_DIR" \
                     "scene_id=$SCENE_INDEX" \
-                    '+map_config.cam_calib_mat=[554,0,320,0,554,240,0,0,1]' \
-                    '+map_config.pose_info.camera_height=1.2' \
-                    '+map_config.pose_info.base_forward_axis=[1,0,0]' \
-                    '+map_config.pose_info.base_left_axis=[0,1,0]' \
-                    '+map_config.pose_info.base_up_axis=[0,0,1]' \
-                    '+map_config.pose_info.base2cam_rot=[0,0,1,-1,0,0,0,-1,0]'
+                    '++map_config.cam_calib_mat=[554,0,320,0,554,240,0,0,1]' \
+                    '++map_config.pose_info.camera_height=1.2' \
+                    '++map_config.pose_info.base_forward_axis=[1,0,0]' \
+                    '++map_config.pose_info.base_left_axis=[0,1,0]' \
+                    '++map_config.pose_info.base_up_axis=[0,0,1]' \
+                    '++map_config.pose_info.base2cam_rot=[0,0,1,-1,0,0,0,-1,0]'
                 if [ -f "$CAP_DIR/vlmap/vlmaps.h5df" ]; then
                     echo ""
                     echo "  ✓ VLMap written: $CAP_DIR/vlmap/vlmaps.h5df"
@@ -693,7 +693,9 @@ run_ros_capture_menu() {
                 fi
                 local -a built=()
                 while IFS= read -r v; do
-                    built+=("$(dirname "$v")")
+                    # v = <run>/vlmap/vlmaps.h5df ; VLMap.load_map wants the run
+                    # dir (it appends "vlmap/vlmaps.h5df" itself), so go up twice.
+                    built+=("$(dirname "$(dirname "$v")")")
                 done < <(find "$CAPTURES_ROOT" -mindepth 3 -maxdepth 4 -name "vlmaps.h5df" | sort)
                 if [ ${#built[@]} -eq 0 ]; then
                     echo "  No VLMaps built yet (look for vlmaps.h5df). Use 'm' first."
