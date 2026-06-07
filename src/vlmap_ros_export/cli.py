@@ -40,11 +40,22 @@ def _load_vlmap(data_dir: str):
             "Pass --config to override.",
         )
     cfg = OmegaConf.load(str(cfg_path))
+    # map_config/vlmaps.yaml interpolates grid_size/cell_size from ${params.gs}
+    # and ${params.cs}. Those live in the params group, which Hydra composes at
+    # build time but is absent when the map_config is loaded standalone here.
+    # Inject the same params/default.yaml the map was built with so the
+    # interpolations resolve to the matching grid geometry (gs=1000, cs=0.05).
+    params_path = submodule / "config" / "params" / "default.yaml"
+    if params_path.exists():
+        cfg.params = OmegaConf.load(str(params_path))
     vlmap = VLMap(cfg)
     if not vlmap.load_map(data_dir):
         raise RuntimeError(f"VLMap.load_map returned False for {data_dir}")
     vlmap._init_clip()  # noqa: SLF001 - public surface forces this anyway
-    vlmap.init_categories(list(vlmap.categories) if getattr(vlmap, "categories", None) else [])
+    # Do not call init_categories here: main() scores each requested category
+    # on its own via _scores_for_category(). Calling it with an empty list (the
+    # state right after load_map) drives get_lseg_score with no landmarks and
+    # raises IndexError on landmarks_other[-1].
     return vlmap
 
 
