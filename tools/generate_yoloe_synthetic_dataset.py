@@ -343,13 +343,17 @@ def _write_data_yaml(out_dir: Path, class_names: List[str]) -> None:
     (out_dir / "data.yaml").write_text(text, encoding="utf-8")
 
 
-def _draw_review_mosaic(samples: List[Tuple[Path, List[Tuple[str, Tuple[int, int, int, int]]]]], out_path: Path) -> None:
+def _draw_review_mosaic(
+    samples: List[Tuple[Path, List[Tuple[str, Tuple[int, int, int, int]]]]],
+    out_path: Path,
+) -> None:
     cells: List[Image.Image] = []
     for image_path, boxes in samples[:25]:
         img = Image.open(image_path).convert("RGB")
+        src_w, src_h = img.size
         img.thumbnail((220, 165))
-        sx = img.width / 640.0
-        sy = img.height / 480.0
+        sx = img.width / max(src_w, 1)
+        sy = img.height / max(src_h, 1)
         draw = ImageDraw.Draw(img)
         for name, (x0, y0, x1, y1) in boxes:
             box = (int(x0 * sx), int(y0 * sy), int(x1 * sx), int(y1 * sy))
@@ -374,8 +378,11 @@ def generate_dataset(args: argparse.Namespace) -> None:
     class_names = list(manifest["class_names"])
     class_to_id = {name: i for i, name in enumerate(class_names)}
     bg_paths = _read_backgrounds(args.backgrounds_dir)
+    canvas_w = int(args.width)
+    canvas_h = int(args.height)
     print(f"[synthetic] background directories: {len(args.backgrounds_dir)}")
     print(f"[synthetic] background images: {len(bg_paths)}")
+    print(f"[synthetic] output size: {canvas_w}x{canvas_h}")
 
     out_dir = args.out_dir
     _ensure_dataset_dirs(out_dir)
@@ -408,7 +415,7 @@ def generate_dataset(args: argparse.Namespace) -> None:
     with metadata_path.open("w", encoding="utf-8") as meta:
         for out_idx, source_idx in enumerate(order):
             split = _split_for_index(out_idx, args.images)
-            bg = Image.open(bg_paths[source_idx % len(bg_paths)]).convert("RGB").resize((640, 480), Image.Resampling.BICUBIC)
+            bg = Image.open(bg_paths[source_idx % len(bg_paths)]).convert("RGB").resize((canvas_w, canvas_h), Image.Resampling.BICUBIC)
             labels: List[str] = []
             boxes_for_review: List[Tuple[str, Tuple[int, int, int, int]]] = []
             records: List[Dict[str, Any]] = []
@@ -418,13 +425,13 @@ def generate_dataset(args: argparse.Namespace) -> None:
                 for _ in range(n_objects):
                     class_name = rng.choice(class_names)
                     cutout = rng.choice(bank[class_name])
-                    img, alpha = _resize_cutout(rng, cutout, manifest, 640, 480)
-                    x, y = _sample_position(rng, 640, 480, img.width, img.height, partial_fraction, lower_fraction)
-                    bbox = _bbox_from_alpha(alpha, x, y, 640, 480)
+                    img, alpha = _resize_cutout(rng, cutout, manifest, canvas_w, canvas_h)
+                    x, y = _sample_position(rng, canvas_w, canvas_h, img.width, img.height, partial_fraction, lower_fraction)
+                    bbox = _bbox_from_alpha(alpha, x, y, canvas_w, canvas_h)
                     if bbox is None:
                         continue
-                    visible_mask = _visible_mask_from_alpha(alpha, x, y, 640, 480)
-                    segment = _segment_points_from_mask(visible_mask, 640, 480)
+                    visible_mask = _visible_mask_from_alpha(alpha, x, y, canvas_w, canvas_h)
+                    segment = _segment_points_from_mask(visible_mask, canvas_w, canvas_h)
                     if segment is None:
                         continue
                     bg.paste(img, (x, y), alpha)
@@ -472,6 +479,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--scene-dataset-config", default=DEFAULT_SCENE_DATASET_CONFIG)
     p.add_argument("--images", type=int, default=200)
     p.add_argument("--seed", type=int, default=13)
+    p.add_argument("--width", type=int, default=640, help="Final composited image width.")
+    p.add_argument("--height", type=int, default=480, help="Final composited image height.")
     p.add_argument("--render-width", type=int, default=640)
     p.add_argument("--render-height", type=int, default=480)
     p.add_argument("--variants-per-object", type=int, default=5)
