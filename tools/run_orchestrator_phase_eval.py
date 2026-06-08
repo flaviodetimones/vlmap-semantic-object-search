@@ -219,6 +219,8 @@ def main() -> None:
     parser.add_argument("--scene-dataset-config-file", default=DEFAULT_SCENE_CONFIG)
     parser.add_argument("--policy-mode", choices=["heuristic", "hybrid", "llm"], default="hybrid")
     parser.add_argument("--yoloe-conf-thresh", type=float, default=0.30)
+    parser.add_argument("--yoloe-weights", default=None,
+                        help="Optional YOLOE .pt weights path. Defaults to the base model.")
     parser.add_argument("--per-query-timeout", type=int, default=180)
     parser.add_argument("--target-queries", type=int, default=TARGET_QUERIES)
     parser.add_argument("--seed", type=int, default=24042026)
@@ -261,6 +263,8 @@ def main() -> None:
         "--out", str(args.out),
         "--per-query-timeout", str(args.per_query_timeout),
     ]
+    if args.yoloe_weights:
+        argv.extend(["--yoloe-weights", args.yoloe_weights])
     rc = _bootstrap_runner(argv)
     if rc != 0:
         raise SystemExit(rc)

@@ -1,0 +1,193 @@
+{
+  "description": "Curated HSSD/synthetic object handles for the YOLOE synthetic verification dataset.",
+  "class_names": [
+    "mug",
+    "bottle",
+    "plush toy",
+    "laptop",
+    "ball"
+  ],
+  "objects": {
+    "mug": [
+      {
+        "handle": "3d779b56904aafa1c8f2412e4f5e4c4460098bb0",
+        "source": "anchor",
+        "short_id": "3d779b56"
+      },
+      {
+        "handle": "569ddd79ca925c3e50d50b9819fbab743ad0db74",
+        "source": "hssd",
+        "short_id": "569ddd79"
+      },
+      {
+        "handle": "572e2f04cf9e17424557ecc4f449e6122a9cae95",
+        "source": "hssd",
+        "short_id": "572e2f04"
+      },
+      {
+        "handle": "1a6b779033e0f9f9936970d79af01ed7653e4321",
+        "source": "hssd",
+        "short_id": "1a6b7790"
+      },
+      {
+        "handle": "4732b4385ae973f1309ad75682fc11704818afe7",
+        "source": "hssd",
+        "short_id": "4732b438"
+      },
+      {
+        "handle": "5742501065a46cf69165e60257b42a86f5fadf8b",
+        "source": "hssd",
+        "short_id": "57425010"
+      }
+    ],
+    "bottle": [
+      {
+        "handle": "xxxxe3f9a974xfd88x433bx92c8x5f4d72d43be3",
+        "source": "anchor",
+        "short_id": "xxxxe3f9"
+      },
+      {
+        "handle": "021a0ba1300490e2e288221a21f4387ce626d1de",
+        "source": "hssd",
+        "short_id": "021a0ba1"
+      },
+      {
+        "handle": "31af0878469759544453aa0414303d93f483f37e",
+        "source": "hssd",
+        "short_id": "31af0878"
+      },
+      {
+        "handle": "2f92d709c9e94753a896c065cb62ed33765837c0",
+        "source": "hssd",
+        "short_id": "2f92d709"
+      }
+    ],
+    "plush toy": [
+      {
+        "handle": "8e800737f35b9af45ec9f3d8eb215ce7f7969e80",
+        "source": "anchor",
+        "short_id": "8e800737"
+      },
+      {
+        "handle": "1c1f8cb950c338c7685124f7cfba716c242435c4",
+        "source": "hssd",
+        "short_id": "1c1f8cb9"
+      },
+      {
+        "handle": "963d58e321de1039c6404fd25b9fe470b7217979",
+        "source": "hssd",
+        "short_id": "963d58e3"
+      }
+    ],
+    "laptop": [
+      {
+        "handle": "00b3040d6d75d68ba6d1bdf96e31c6b8432cbc1f",
+        "source": "anchor",
+        "short_id": "00b3040d"
+      },
+      {
+        "handle": "c0fa43b54bd550bd1cdb93ef4d97b57ce585fc19",
+        "source": "hssd",
+        "short_id": "c0fa43b5"
+      },
+      {
+        "handle": "cd743d72e27ab591706521942259495acd8a819a",
+        "source": "hssd",
+        "short_id": "cd743d72"
+      }
+    ],
+    "ball": [
+      {
+        "handle": "ba11c0d7f4ea4c1d9b51bf6c8c9d7eaeefoooball",
+        "source": "anchor",
+        "short_id": "ballc0d7"
+      },
+      {
+        "handle": "5063b5239fc589cc5c7da36e87f921901827bcbf",
+        "source": "hssd",
+        "short_id": "5063b523"
+      },
+      {
+        "handle": "5d18f79ad4ea81c35d781bd9acd29bd7e532c41f",
+        "source": "hssd",
+        "short_id": "5d18f79a"
+      }
+    ]
+  },
+  "generation_policy": {
+    "recommended_total_images": {
+      "pilot": 200,
+      "full": 4000
+    },
+    "negative_image_fraction": 0.2,
+    "max_objects_per_image": 3,
+    "placement": {
+      "prefer_lower_image_fraction": 0.7,
+      "allow_partial_cutoff_fraction": 0.1
+    },
+    "class_rotation_rules": {
+      "mug": {
+        "yaw_degrees": "0..360",
+        "pitch_roll_degrees": "-15..15",
+        "allow_upside_down": false
+      },
+      "bottle": {
+        "yaw_degrees": "0..360",
+        "pitch_roll_degrees": "-15..15",
+        "lying_down_fraction": 0.15,
+        "allow_upside_down": false
+      },
+      "plush toy": {
+        "yaw_degrees": "0..360",
+        "pitch_roll_degrees": "-90..90",
+        "allow_upside_down": false
+      },
+      "laptop": {
+        "yaw_degrees": "0..360",
+        "pitch_roll_degrees": "-10..10",
+        "allow_upside_down": false
+      },
+      "ball": {
+        "yaw_degrees": "0..360",
+        "pitch_roll_degrees": "0..360",
+        "allow_upside_down": true
+      }
+    },
+    "relative_box_width_ranges": {
+      "mug": [
+        0.06,
+        0.35
+      ],
+      "bottle": [
+        0.05,
+        0.4
+      ],
+      "plush toy": [
+        0.1,
+        0.55
+      ],
+      "laptop": [
+        0.15,
+        0.6
+      ],
+      "ball": [
+        0.05,
+        0.45
+      ]
+    }
+  },
+  "portable_training_profile": {
+    "gpu": "RTX 3070 Ti Laptop",
+    "image_size": 640,
+    "batch_size": 4,
+    "fallback_batch_size": 2,
+    "epochs_first_pass": 30,
+    "epochs_extended": 50,
+    "mixed_precision": true,
+    "notes": [
+      "Start with a 200-image pilot and inspect labels before generating the full dataset.",
+      "If VRAM fails at 640/batch 4, keep 640 and reduce batch to 2 before reducing image size.",
+      "Keep a held-out Habitat scene for qualitative and end-to-end evaluation."
+    ]
+  }
+}

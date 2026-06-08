@@ -417,8 +417,8 @@ def main() -> None:
     write_markdown(rows, args.out_md)
     if use_manifests:
         header = (
-            f"Baseline: heatmap={baseline_meta.get('heatmap_mode', '-')}, yoloe_conf_thresh={baseline_meta.get('yoloe_conf_thresh', '-')}, room_aware={baseline_meta.get('room_aware', '-')}\n"
-            f"Executor: heatmap={executor_meta.get('heatmap_mode', '-')}, yoloe_conf_thresh={executor_meta.get('yoloe_conf_thresh', '-')}, room_aware={executor_meta.get('room_aware', '-')}\n\n"
+            f"Baseline: heatmap={baseline_meta.get('heatmap_mode', '-')}, yoloe_conf_thresh={baseline_meta.get('yoloe_conf_thresh', '-')}, yoloe_weights={baseline_meta.get('yoloe_weights', 'base')}, room_aware={baseline_meta.get('room_aware', '-')}\n"
+            f"Executor: heatmap={executor_meta.get('heatmap_mode', '-')}, yoloe_conf_thresh={executor_meta.get('yoloe_conf_thresh', '-')}, yoloe_weights={executor_meta.get('yoloe_weights', 'base')}, room_aware={executor_meta.get('room_aware', '-')}\n\n"
         )
         args.out_md.write_text(header + args.out_md.read_text(encoding="utf-8"), encoding="utf-8")
     print(f"Wrote CSV: {args.out_csv}")

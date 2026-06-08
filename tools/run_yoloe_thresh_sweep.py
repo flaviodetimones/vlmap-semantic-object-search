@@ -140,6 +140,8 @@ def main() -> None:
         default="/workspace/data/versioned_data/hssd-hab/hssd-hab.scene_dataset_config.json",
     )
     parser.add_argument("--policy-mode", choices=["heuristic", "hybrid", "llm"], default="hybrid")
+    parser.add_argument("--yoloe-weights", default=None,
+                        help="Optional YOLOE .pt weights path. Defaults to the base model.")
     parser.add_argument("--per-query-timeout", type=int, default=180)
     parser.add_argument("--out", required=True, type=Path)
     args = parser.parse_args()
@@ -182,6 +184,7 @@ def main() -> None:
         "data_paths": args.data_paths,
         "scene_dataset_config_file": args.scene_dataset_config_file,
         "policy_mode": args.policy_mode,
+        "yoloe_weights": args.yoloe_weights or "base",
         "per_query_timeout": args.per_query_timeout,
     }
     (args.out / "config.json").write_text(json.dumps(config, indent=2), encoding="utf-8")
@@ -207,6 +210,8 @@ def main() -> None:
         ]
         if spec["entrypoint"] == "executor":
             cmd += ["--policy-mode", args.policy_mode]
+        if args.yoloe_weights:
+            cmd += ["--yoloe-weights", args.yoloe_weights]
 
         rc = _run_command(cmd)
         if rc != 0:

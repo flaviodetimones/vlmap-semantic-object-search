@@ -281,6 +281,10 @@ run_testing_menu() {
                     echo -n "  YOLOE conf threshold [0.30|0.35|0.40] (default 0.30): "
                     read -r yoloe_conf
                     yoloe_conf=${yoloe_conf:-0.30}
+                    echo -n "  YOLOE weights .pt path (blank = base model): "
+                    read -r yoloe_weights
+                    yoloe_args=()
+                    [ -n "$yoloe_weights" ] && yoloe_args=(--yoloe-weights "$yoloe_weights")
                     STAMP=$(date +%Y%m%d_%H%M%S)
                     OUT_DIR="/workspace/results/eval_runs/${STAMP}"
                     echo ""
@@ -296,6 +300,7 @@ run_testing_menu() {
                             --scene-dataset-config-file "$HSSD_CFG" \
                             --policy-mode "$policy_mode" \
                             --yoloe-conf-thresh "$yoloe_conf" \
+                            "${yoloe_args[@]}" \
                             --out "$OUT_DIR"
                     else
                         python tools/run_full_eval.py \
@@ -305,6 +310,7 @@ run_testing_menu() {
                             --scene-dataset-config-file "$HSSD_CFG" \
                             --policy-mode "$policy_mode" \
                             --yoloe-conf-thresh "$yoloe_conf" \
+                            "${yoloe_args[@]}" \
                             --out "$OUT_DIR"
                     fi
                     echo ""
@@ -401,6 +407,10 @@ run_testing_menu() {
                     echo -n "  Executor policy mode [heuristic|hybrid|llm] (default hybrid): "
                     read -r sweep_policy_mode
                     sweep_policy_mode=${sweep_policy_mode:-hybrid}
+                    echo -n "  YOLOE weights .pt path (blank = base model): "
+                    read -r sweep_yoloe_weights
+                    sweep_yoloe_args=()
+                    [ -n "$sweep_yoloe_weights" ] && sweep_yoloe_args=(--yoloe-weights "$sweep_yoloe_weights")
                     STAMP=$(date +%Y%m%d_%H%M%S)
                     OUT_DIR="/workspace/results/yoloe_sweep/${STAMP}"
                     echo ""
@@ -417,6 +427,7 @@ run_testing_menu() {
                             --data-paths "$DATA_PATHS" \
                             --scene-dataset-config-file "$HSSD_CFG" \
                             --policy-mode "$sweep_policy_mode" \
+                            "${sweep_yoloe_args[@]}" \
                             --out "$OUT_DIR"
                     else
                         scene_name=$(scene_name_from_id "$sweep_scene_id")
@@ -432,6 +443,7 @@ run_testing_menu() {
                                 --data-paths "$DATA_PATHS" \
                                 --scene-dataset-config-file "$HSSD_CFG" \
                                 --policy-mode "$sweep_policy_mode" \
+                                "${sweep_yoloe_args[@]}" \
                                 --out "$OUT_DIR"
                         fi
                     fi
@@ -566,6 +578,10 @@ run_testing_menu() {
                     echo -n "  YOLOE conf threshold (default 0.30): "
                     read -r ov_yoloe_conf
                     ov_yoloe_conf=${ov_yoloe_conf:-0.30}
+                    echo -n "  YOLOE weights .pt path (blank = base model): "
+                    read -r ov_yoloe_weights
+                    ov_yoloe_args=()
+                    [ -n "$ov_yoloe_weights" ] && ov_yoloe_args=(--yoloe-weights "$ov_yoloe_weights")
                     echo -n "  Methods CSV (default Ob_Hp): "
                     read -r ov_methods
                     ov_methods=${ov_methods:-Ob_Hp}
@@ -583,6 +599,7 @@ run_testing_menu() {
                         --scene-dataset-config-file "$HSSD_CFG" \
                         --policy-mode "$ov_policy" \
                         --yoloe-conf-thresh "$ov_yoloe_conf" \
+                        "${ov_yoloe_args[@]}" \
                         --methods "$ov_methods" \
                         --out "$OUT_DIR"
                     echo ""
@@ -856,6 +873,9 @@ while true; do
                 echo "  │  r) Scripts reference (full pipeline overview)  │"
                 echo "  │  s) List available scenes                       │"
                 echo "  │  c) Collect dataset                             │"
+                echo "  │  f) Capture detector backgrounds (manual)       │"
+                echo "  │  y) Generate YOLOE synthetic detector dataset   │"
+                echo "  │  z) Train YOLOE on synthetic detector dataset   │"
                 echo "  │  m) Create VLMap          (scene_id required)   │"
                 echo "  │  i) Index map             (scene_id required)   │"
                 echo "  │  x) LLM navigation + room exploration [default] │"
@@ -867,7 +887,7 @@ while true; do
                 read -r sub
                 sub=${sub:-x}
                 case "$sub" in
-                    r|R|s|S|c|C|m|M|i|I|x|X|n|N|t|T|b|B) ;;
+                    r|R|s|S|c|C|f|F|y|Y|z|Z|m|M|i|I|x|X|n|N|t|T|b|B) ;;
                     *)
                         echo "  Invalid option."
                         continue
@@ -1065,6 +1085,155 @@ while true; do
                             fi
                         fi
                         ;;
+                    f|F)
+                        echo ""
+                        if [ "$DATASET_TYPE" != "hssd" ]; then
+                            echo "  Background capture is currently HSSD-only."
+                            continue
+                        fi
+                        echo "  Manual RGB background capture for synthetic detector data."
+                        echo "  This does NOT create a VLMap and does NOT save depth/poses for mapping."
+                        echo "  Requires X11 display (xhost +local:docker on host if needed)."
+                        echo ""
+                        echo -n "  raw HSSD scene id (default 104862501_172226556): "
+                        read -r bg_scene
+                        bg_scene=${bg_scene:-104862501_172226556}
+                        echo -n "  max frames to save (default 100; use 1500+ only after validation): "
+                        read -r bg_frames
+                        bg_frames=${bg_frames:-100}
+                        echo -n "  min distance between saved frames in metres (default 1.0): "
+                        read -r bg_dist
+                        bg_dist=${bg_dist:-1.0}
+                        echo -n "  min yaw between saved frames in degrees (default 30): "
+                        read -r bg_yaw
+                        bg_yaw=${bg_yaw:-30}
+                        run_id=$(date +%Y%m%d_%H%M%S)
+                        bg_out="/shared/backgrounds/hssd_${bg_scene}_manual_${run_id}"
+                        echo ""
+                        echo "  Output: $bg_out"
+                        echo "  Controls: w=forward  a=left  d=right  s=force-save  q=quit"
+                        echo "  Auto-save happens only after ${bg_dist}m or ${bg_yaw}deg from last saved frame."
+                        echo ""
+                        cd /workspace
+                        python /workspace/tools/capture_hssd_backgrounds.py \
+                            --mode manual \
+                            --scene-id "$bg_scene" \
+                            --out-dir "$bg_out" \
+                            --frames "$bg_frames" \
+                            --width 640 \
+                            --height 480 \
+                            --pitch-deg -15 \
+                            --min-distance-m "$bg_dist" \
+                            --min-yaw-deg "$bg_yaw" \
+                            --min-std-brightness 22
+                        ;;
+                    y|Y)
+                        echo ""
+                        if [ ! -d "/shared/backgrounds" ]; then
+                            echo "  /shared/backgrounds does not exist. Capture backgrounds with option 'f' first."
+                            continue
+                        fi
+                        echo "  Available background captures:"
+                        bg_runs=()
+                        while IFS= read -r run; do
+                            bg_runs+=("$run")
+                        done < <(find /shared/backgrounds -mindepth 1 -maxdepth 1 -type d | sort)
+                        if [ ${#bg_runs[@]} -eq 0 ]; then
+                            echo "    (no background captures found)"
+                            continue
+                        fi
+                        bg_idx=0
+                        for run in "${bg_runs[@]}"; do
+                            count=$(find "$run/images" -maxdepth 1 -type f \( -name "*.png" -o -name "*.jpg" -o -name "*.jpeg" \) 2>/dev/null | wc -l)
+                            echo "    [$bg_idx] $run  ($count images)"
+                            bg_idx=$((bg_idx + 1))
+                        done
+                        echo -n "  Select background index (default last): "
+                        read -r bg_sel
+                        bg_sel=${bg_sel:-$(( ${#bg_runs[@]} - 1 ))}
+                        if ! [[ "$bg_sel" =~ ^[0-9]+$ ]] || [ "$bg_sel" -ge "${#bg_runs[@]}" ]; then
+                            echo "  Invalid index."
+                            continue
+                        fi
+                        echo -n "  synthetic images to generate (default 200): "
+                        read -r synth_images
+                        synth_images=${synth_images:-200}
+                        echo -n "  output run name (default pilot_${synth_images}): "
+                        read -r synth_name
+                        synth_name=${synth_name:-pilot_${synth_images}}
+                        synth_out="/shared/yoloe_synthetic/${synth_name}"
+                        echo ""
+                        echo "  Backgrounds: ${bg_runs[$bg_sel]}"
+                        echo "  Output     : $synth_out"
+                        echo "  Manifest   : /workspace/configs/yoloe_synthetic_object_manifest.json"
+                        echo ""
+                        cd /workspace
+                        python /workspace/tools/generate_yoloe_synthetic_dataset.py \
+                            --backgrounds-dir "${bg_runs[$bg_sel]}" \
+                            --out-dir "$synth_out" \
+                            --images "$synth_images"
+                        ;;
+                    z|Z)
+                        echo ""
+                        if [ ! -d "/shared/yoloe_synthetic" ]; then
+                            echo "  /shared/yoloe_synthetic does not exist. Generate a dataset with option 'y' first."
+                            continue
+                        fi
+                        echo "  Available synthetic datasets:"
+                        synth_runs=()
+                        while IFS= read -r run; do
+                            synth_runs+=("$run")
+                        done < <(find /shared/yoloe_synthetic -mindepth 1 -maxdepth 1 -type d | sort)
+                        if [ ${#synth_runs[@]} -eq 0 ]; then
+                            echo "    (no synthetic datasets found)"
+                            continue
+                        fi
+                        synth_idx=0
+                        for run in "${synth_runs[@]}"; do
+                            train_count=$(find "$run/images/train" -maxdepth 1 -type f \( -name "*.jpg" -o -name "*.png" \) 2>/dev/null | wc -l)
+                            val_count=$(find "$run/images/val" -maxdepth 1 -type f \( -name "*.jpg" -o -name "*.png" \) 2>/dev/null | wc -l)
+                            test_count=$(find "$run/images/test" -maxdepth 1 -type f \( -name "*.jpg" -o -name "*.png" \) 2>/dev/null | wc -l)
+                            echo "    [$synth_idx] $run  (train=$train_count val=$val_count test=$test_count)"
+                            synth_idx=$((synth_idx + 1))
+                        done
+                        echo -n "  Select dataset index (default last): "
+                        read -r synth_sel
+                        synth_sel=${synth_sel:-$(( ${#synth_runs[@]} - 1 ))}
+                        if ! [[ "$synth_sel" =~ ^[0-9]+$ ]] || [ "$synth_sel" -ge "${#synth_runs[@]}" ]; then
+                            echo "  Invalid index."
+                            continue
+                        fi
+                        echo -n "  base YOLOE weights (default /workspace/yoloe-11l-seg.pt): "
+                        read -r train_weights
+                        train_weights=${train_weights:-/workspace/yoloe-11l-seg.pt}
+                        echo -n "  run name (blank = timestamp): "
+                        read -r train_name
+                        echo -n "  epochs (default 30): "
+                        read -r train_epochs
+                        train_epochs=${train_epochs:-30}
+                        echo -n "  batch (default 2): "
+                        read -r train_batch
+                        train_batch=${train_batch:-2}
+                        echo -n "  image size (default 640): "
+                        read -r train_imgsz
+                        train_imgsz=${train_imgsz:-640}
+                        echo ""
+                        echo "► Training YOLOE fine-tuned model..."
+                        echo "  Dataset: ${synth_runs[$synth_sel]}"
+                        echo "  Output : /shared/yoloe_finetune"
+                        echo "  Use the final best.pt path later as YOLOE weights."
+                        cd /workspace
+                        train_args=()
+                        [ -n "$train_name" ] && train_args=(--name "$train_name")
+                        python /workspace/tools/train_yoloe_finetune.py \
+                            --data "${synth_runs[$synth_sel]}/data.yaml" \
+                            --weights "$train_weights" \
+                            --project /shared/yoloe_finetune \
+                            --epochs "$train_epochs" \
+                            --batch "$train_batch" \
+                            --imgsz "$train_imgsz" \
+                            "${train_args[@]}"
+                        ;;
                     m|M)
                         echo ""
                         echo "  Available scenes [$DS_LABEL]:"
@@ -1201,6 +1370,8 @@ while true; do
                         echo -n "  YOLOE low-confidence trigger (default 0.40): "
                         read -r yoloe_low_thresh
                         yoloe_low_thresh=${yoloe_low_thresh:-0.40}
+                        echo -n "  YOLOE weights .pt path (blank = base model): "
+                        read -r interactive_yoloe_weights
                         echo -n "  Repeated-scan radius in meters (default 1.5): "
                         read -r scan_dedup_radius
                         scan_dedup_radius=${scan_dedup_radius:-1.5}
@@ -1232,6 +1403,7 @@ while true; do
                         VLMAPS_EXPLORE_DEBUG=1 \
                         VLMAPS_EXPLORE_TIMEOUT_S="$explore_timeout" \
                         VLMAPS_YOLOE_ROOM_LOW_THRESH="$yoloe_low_thresh" \
+                        VLMAPS_YOLOE_WEIGHTS="$interactive_yoloe_weights" \
                         VLMAPS_SCAN_DEDUP_RADIUS_M="$scan_dedup_radius" \
                             python "$APP/interactive_object_nav.py" \
                                 data_paths="$DATA_PATHS" scene_id="$scene" $NAV_EXTRA

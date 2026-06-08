@@ -167,6 +167,8 @@ def main() -> None:
                    help="Executor-only policy mode, forwarded as VLMAPS_POLICY_MODE.")
     p.add_argument("--yoloe-conf-thresh", type=float, default=0.30,
                    help="YOLOE confidence threshold forwarded to runtime.")
+    p.add_argument("--yoloe-weights", default=None,
+                   help="Optional YOLOE .pt weights path. Defaults to the base model.")
     p.add_argument("--per-query-timeout", type=int, default=180,
                    help="Soft per-query budget (seconds). Total timeout = N * this.")
     p.add_argument("--extra-overrides", nargs="*", default=[],
@@ -209,6 +211,7 @@ def main() -> None:
     env_extra = {
         "VLMAPS_HEATMAP_MODE": args.heatmap_mode,
         "VLMAPS_YOLOE_CONF_THRESH": str(args.yoloe_conf_thresh),
+        "VLMAPS_YOLOE_WEIGHTS": args.yoloe_weights,
     }
     if args.entrypoint == "executor":
         env_extra["VLMAPS_ROOM_AWARE"] = effective_room_aware
@@ -235,6 +238,7 @@ def main() -> None:
         f"Entrypoint: {args.entrypoint}\n"
         f"Heatmap mode: {args.heatmap_mode}\n"
         f"YOLOE conf thresh: {args.yoloe_conf_thresh:.2f}\n"
+        f"YOLOE weights: {args.yoloe_weights or 'base'}\n"
         f"Room-aware: {effective_room_aware}\n"
         f"Policy mode: {args.policy_mode or '-'}\n"
         f"Scene: {scene_name or args.scene_id}\n\n"
@@ -245,6 +249,7 @@ def main() -> None:
         "entrypoint": args.entrypoint,
         "heatmap_mode": args.heatmap_mode,
         "yoloe_conf_thresh": args.yoloe_conf_thresh,
+        "yoloe_weights": args.yoloe_weights or "base",
         "room_aware": effective_room_aware,
         "policy_mode": args.policy_mode,
         "queries_jsonl": str(args.queries),

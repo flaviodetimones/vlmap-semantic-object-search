@@ -151,6 +151,8 @@ def main() -> None:
     )
     parser.add_argument("--policy-mode", choices=["heuristic", "hybrid", "llm"], default="hybrid")
     parser.add_argument("--yoloe-conf-thresh", type=float, default=0.30)
+    parser.add_argument("--yoloe-weights", default=None,
+                        help="Optional YOLOE .pt weights path. Defaults to the base model.")
     parser.add_argument("--per-query-timeout", type=int, default=180)
     parser.add_argument("--methods", default=None,
                         help="Optional comma-separated subset of method keys.")
@@ -182,6 +184,7 @@ def main() -> None:
         "scene_dataset_config_file": args.scene_dataset_config_file,
         "policy_mode": args.policy_mode,
         "yoloe_conf_thresh": args.yoloe_conf_thresh,
+        "yoloe_weights": args.yoloe_weights or "base",
         "per_query_timeout": args.per_query_timeout,
         "resume": args.resume,
         "methods": selected_specs,
@@ -239,6 +242,8 @@ def main() -> None:
             ]
             if spec["entrypoint"] == "executor":
                 cmd.extend(["--policy-mode", args.policy_mode])
+            if args.yoloe_weights:
+                cmd.extend(["--yoloe-weights", args.yoloe_weights])
             rc = _run_command(cmd)
             if not manifest_path.exists():
                 raise SystemExit(

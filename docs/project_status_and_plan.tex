@@ -29,7 +29,7 @@
 \normalsize Detección (YOLOE) + Búsqueda (VLMaps) + Navegación (Habitat-Sim)\\
 Extensión: ROS 1 Noetic + Toyota HSR}
 \author{Mario García Blasco}
-\date{15 de mayo de 2026}
+\date{8 de junio de 2026}
 
 \begin{document}
 
@@ -230,6 +230,154 @@ ejecutable}. Esto deja el camino preparado para búsquedas más abiertas de nive
   \item[\checkmark] Caché global \texttt{get\_session(target)}: reutiliza sesión entre
         instrucciones del mismo objeto
 \end{itemize}
+
+\subsection{Adaptación ligera de YOLOE con datos sintéticos --- \textcolor{partialcol}{EN CURSO}}
+
+\textbf{Decisión de alcance (junio 2026).} La migración ROS/Gazebo/HSR queda
+como una integración funcional preliminar y trabajo futuro de ingeniería. La
+línea principal del TFG se refuerza en \texttt{tfg-sim}: mejorar el verificador
+visual que cierra la búsqueda semántica. Esto es coherente con la arquitectura:
+VLMaps propone habitaciones, muebles y superficies probables, mientras que
+YOLOE decide si el objeto pequeño está realmente visible desde la cámara.
+
+\paragraph{Motivación.} En las pruebas con objetos pequeños, el sistema ya
+localiza zonas razonables con VLMaps, pero a veces YOLOE detecta el objeto con
+confianza baja o lo pierde al acercarse. Esto afecta a objetivos como
+\texttt{mug}, \texttt{bottle}, \texttt{laptop}, \texttt{plush toy} y
+\texttt{ball}. Por tanto, la mejora más directa no es cambiar la memoria
+semántica, sino adaptar el verificador visual a los objetos domésticos usados
+en la evaluación.
+
+\paragraph{Clases objetivo.} Se ha fijado un conjunto pequeño y controlado de
+cinco clases: \texttt{mug}, \texttt{bottle}, \texttt{plush toy},
+\texttt{laptop} y \texttt{ball}. Los modelos proceden de HSSD y se han
+seleccionado visualmente con mosaicos de candidatos. El objetivo no es entrenar
+un detector general, sino adaptar YOLOE al vocabulario de objetos de la
+evaluación end-to-end.
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=0.92\linewidth]{figs/yoloe_synthetic/object_candidates_mug.png}
+  \caption{Mosaico de candidatos HSSD para \texttt{mug}. Se eligieron seis variantes visuales para cubrir cambios de forma, color y asa.}
+\end{figure}
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=0.92\linewidth]{figs/yoloe_synthetic/object_candidates_bottle.png}
+  \caption{Mosaico de candidatos HSSD para \texttt{bottle}. Se eligieron cuatro modelos con siluetas y materiales distintos.}
+\end{figure}
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=0.92\linewidth]{figs/yoloe_synthetic/object_candidates_plush_toy.png}
+  \caption{Mosaico de candidatos HSSD para \texttt{plush toy}. La clase se define como peluche genérico, no necesariamente oso.}
+\end{figure}
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=0.92\linewidth]{figs/yoloe_synthetic/object_candidates_laptop.png}
+  \caption{Mosaico de candidatos HSSD para \texttt{laptop}. Se conservan tres variantes porque la clase es visualmente más estable.}
+\end{figure}
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=0.92\linewidth]{figs/yoloe_synthetic/object_candidates_ball.png}
+  \caption{Mosaico de candidatos HSSD para \texttt{ball}. Se usan tres variantes para cubrir balones con apariencia diferente.}
+\end{figure}
+
+\paragraph{Captura de fondos.} Se ha añadido un modo de captura manual de
+fondos RGB en Habitat-Sim, separado de la captura usada para construir VLMaps.
+El piloto se hizo en la escena HSSD \texttt{104862501\_172226556}, que no forma
+parte de las tres escenas principales usadas en las evaluaciones previas. El
+capturador guarda una imagen solo si el robot se ha desplazado al menos 1 m o
+ha cambiado la orientación al menos 30 grados, reduciendo fondos casi idénticos.
+Para la primera prueba se capturaron 100 fondos.
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=0.92\linewidth]{figs/yoloe_synthetic/background_capture_contact_sheet.jpg}
+  \caption{Muestra de fondos interiores capturados manualmente para el dataset sintético. No se usan para construir VLMaps, solo como contexto visual para el detector.}
+\end{figure}
+
+\paragraph{Generación sintética.} El nuevo generador compone objetos HSSD sobre
+los fondos capturados. Cada objeto se renderiza con Habitat-Sim contra un fondo
+limpio usando sensor RGB y sensor semántico. La máscara semántica da un
+polígono de segmentación en formato YOLO, sin etiquetado manual. La caja 2D se
+mantiene solo para revisión visual y metadatos. Después se aplica composición
+aleatoria con restricciones por clase: escalas, orientación, traslación,
+negativos y hasta tres objetos por imagen. La pelota puede rotar libremente; en
+objetos con orientación clara se evita generar vistas físicamente absurdas.
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=0.95\linewidth]{figs/yoloe_synthetic/yoloe_finetuning_flow.png}
+  \caption{Flujo de adaptación ligera: captura de fondos, render de modelos HSSD, composición sintética, dataset YOLO y comparación YOLOE base frente a YOLOE adaptado.}
+\end{figure}
+
+\paragraph{Piloto generado.} Con los 100 fondos se generó un piloto de 200
+imágenes en \texttt{/shared/yoloe\_synthetic/pilot\_200\_manual\_100bg}. La
+división es 70/20/10 y las etiquetas son polígonos de segmentación con unas
+26--28 coordenadas de media por instancia:
+\begin{itemize}
+  \item \textbf{train}: 140 imágenes, 223 instancias y 19 negativos.
+  \item \textbf{validation}: 40 imágenes, 63 instancias y 9 negativos.
+  \item \textbf{test}: 20 imágenes, 29 instancias y 5 negativos.
+\end{itemize}
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=0.95\linewidth]{figs/yoloe_synthetic/synthetic_pilot_mosaic.jpg}
+  \caption{Mosaico de revisión del dataset sintético piloto. Las cajas mostradas son una ayuda visual; el entrenamiento usa polígonos derivados de máscaras semánticas.}
+\end{figure}
+
+\paragraph{Selección entre modelo base y modelo adaptado.} Se ha añadido una
+ruta explícita para comparar ambos detectores sin tocar la lógica semántica:
+\begin{itemize}
+  \item \texttt{VLMAPS\_YOLOE\_WEIGHTS}: variable de entorno para navegación
+        interactiva. Si está vacía se usa el modelo base.
+  \item \texttt{--yoloe-weights}: argumento en \texttt{run\_nav\_eval.py},
+        \texttt{run\_full\_eval.py}, \texttt{run\_open\_vocab\_eval.py},
+        \texttt{run\_yoloe\_thresh\_sweep.py} y
+        \texttt{run\_orchestrator\_phase\_eval.py}.
+  \item El menú Docker pregunta por la ruta \texttt{.pt} en evaluaciones y
+        navegación manual. En blanco significa YOLOE base.
+  \item El menú también incluye una opción de entrenamiento sobre datasets
+        sintéticos, con salida en \texttt{/shared/yoloe\_finetune}. El archivo
+        \texttt{weights/best.pt} resultante es la ruta que se introduce después
+        para comparar contra el modelo base.
+  \item Los manifiestos de evaluación registran \texttt{yoloe\_weights} para
+        que las tablas de resultados distingan claramente el modelo usado.
+\end{itemize}
+
+\paragraph{Smoke test de entrenamiento.} Se ejecutó una prueba mínima de una
+época sobre el piloto segmentado, con \texttt{imgsz=320} y \texttt{batch=1}, en
+la GPU RTX 3070 Ti Laptop. Esta prueba no se usa como resultado final, pero
+valida que el formato de labels es aceptado por \texttt{YOLOESegModel}, que no
+hay imágenes corruptas y que se produce un \texttt{best.pt} reutilizable:
+\texttt{/shared/yoloe\_finetune/smoke\_pilot\_200\_seg/weights/best.pt}. En
+validación, tras una sola época, se obtuvo \texttt{mAP50(B)=0.521},
+\texttt{mAP50-95(B)=0.445}, \texttt{mAP50(M)=0.517} y
+\texttt{mAP50-95(M)=0.376}. Estos valores no deben interpretarse como
+conclusión experimental, sino como comprobación de viabilidad del flujo.
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=0.86\linewidth]{figs/yoloe_synthetic/finetune_smoke_labels.jpg}
+  \caption{Distribución visual de etiquetas generada por Ultralytics durante el smoke test de fine-tuning.}
+\end{figure}
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=0.86\linewidth]{figs/yoloe_synthetic/finetune_smoke_results.png}
+  \caption{Curvas de entrenamiento y validación del smoke test de una época. Su función es verificar el pipeline, no cerrar la evaluación final.}
+\end{figure}
+
+\paragraph{Siguiente experimento.} El siguiente paso es entrenar un primer
+modelo real con el piloto de 200 imágenes, por ejemplo 30 épocas a
+\texttt{imgsz=640} y \texttt{batch=2}, y compararlo contra YOLOE base. Si mejora
+recall sin disparar falsos positivos, se escala a un dataset de mayor tamaño
+(por ejemplo 1500--3000 imágenes) manteniendo la misma escena de fondos para
+entrenamiento y reservando escenas distintas para evaluación end-to-end.
 
 \subsection{Filtros de calidad --- \textcolor{done}{COMPLETADOS}}
 
