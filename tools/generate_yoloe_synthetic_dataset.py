@@ -177,7 +177,7 @@ def _build_cutout_bank(
         sim.close()
 
 
-def _read_backgrounds(backgrounds_dir: Path) -> List[Path]:
+def _read_backgrounds_one(backgrounds_dir: Path) -> List[Path]:
     image_dir = backgrounds_dir / "images"
     if not image_dir.exists():
         image_dir = backgrounds_dir
@@ -187,6 +187,21 @@ def _read_backgrounds(backgrounds_dir: Path) -> List[Path]:
     )
     if not paths:
         raise FileNotFoundError(f"no background images found under {backgrounds_dir}")
+    return paths
+
+
+def _read_backgrounds(backgrounds_dirs: Iterable[Path]) -> List[Path]:
+    paths: List[Path] = []
+    seen: set[Path] = set()
+    for backgrounds_dir in backgrounds_dirs:
+        for path in _read_backgrounds_one(backgrounds_dir):
+            resolved = path.resolve()
+            if resolved in seen:
+                continue
+            seen.add(resolved)
+            paths.append(path)
+    if not paths:
+        raise FileNotFoundError("no background images found in any --backgrounds-dir")
     return paths
 
 
@@ -359,6 +374,8 @@ def generate_dataset(args: argparse.Namespace) -> None:
     class_names = list(manifest["class_names"])
     class_to_id = {name: i for i, name in enumerate(class_names)}
     bg_paths = _read_backgrounds(args.backgrounds_dir)
+    print(f"[synthetic] background directories: {len(args.backgrounds_dir)}")
+    print(f"[synthetic] background images: {len(bg_paths)}")
 
     out_dir = args.out_dir
     _ensure_dataset_dirs(out_dir)
@@ -443,7 +460,13 @@ def generate_dataset(args: argparse.Namespace) -> None:
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--backgrounds-dir", type=Path, required=True)
+    p.add_argument(
+        "--backgrounds-dir",
+        type=Path,
+        action="append",
+        required=True,
+        help="Background directory. Can be provided multiple times. If it contains an images/ child, that child is used.",
+    )
     p.add_argument("--out-dir", type=Path, required=True)
     p.add_argument("--manifest", type=Path, default=Path(DEFAULT_MANIFEST))
     p.add_argument("--scene-dataset-config", default=DEFAULT_SCENE_DATASET_CONFIG)
