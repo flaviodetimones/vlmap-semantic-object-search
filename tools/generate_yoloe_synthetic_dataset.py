@@ -274,6 +274,21 @@ def _bbox_from_alpha(alpha: Image.Image, x: int, y: int, canvas_w: int, canvas_h
     return x0, y0, x1, y1
 
 
+def _boxes_overlap(
+    first: Tuple[int, int, int, int],
+    second: Tuple[int, int, int, int],
+    padding: int = 0,
+) -> bool:
+    ax0, ay0, ax1, ay1 = first
+    bx0, by0, bx1, by1 = second
+    return not (
+        ax1 + padding <= bx0
+        or bx1 + padding <= ax0
+        or ay1 + padding <= by0
+        or by1 + padding <= ay0
+    )
+
+
 def _visible_mask_from_alpha(alpha: Image.Image, x: int, y: int, canvas_w: int, canvas_h: int) -> np.ndarray:
     arr = (np.asarray(alpha) > 12).astype(np.uint8)
     full = np.zeros((canvas_h, canvas_w), dtype=np.uint8)
@@ -405,45 +420,61 @@ def generate_dataset(args: argparse.Namespace) -> None:
     policy = manifest["generation_policy"]
     negative_fraction = float(policy.get("negative_image_fraction", 0.2))
     max_objects = int(policy.get("max_objects_per_image", 3))
-    partial_fraction = float(policy.get("placement", {}).get("allow_partial_cutoff_fraction", 0.1))
-    lower_fraction = float(policy.get("placement", {}).get("prefer_lower_image_fraction", 0.7))
+    placement_policy = policy.get("placement", {})
+    partial_fraction = float(placement_policy.get("allow_partial_cutoff_fraction", 0.1))
+    lower_fraction = float(placement_policy.get("prefer_lower_image_fraction", 0.7))
+    max_attempts = max(1, int(placement_policy.get("max_placement_attempts_per_object", 50)))
+    forbid_overlap = bool(placement_policy.get("forbid_bbox_overlap", True))
 
-    order = list(range(args.images))
-    rng.shuffle(order)
     review: List[Tuple[Path, List[Tuple[str, Tuple[int, int, int, int]]]]] = []
     metadata_path = out_dir / "metadata.jsonl"
     with metadata_path.open("w", encoding="utf-8") as meta:
-        for out_idx, source_idx in enumerate(order):
+        for out_idx in range(args.images):
             split = _split_for_index(out_idx, args.images)
-            bg = Image.open(bg_paths[source_idx % len(bg_paths)]).convert("RGB").resize((canvas_w, canvas_h), Image.Resampling.BICUBIC)
+            bg_path = rng.choice(bg_paths)
+            bg = Image.open(bg_path).convert("RGB").resize((canvas_w, canvas_h), Image.Resampling.BICUBIC)
             labels: List[str] = []
+            placed_boxes: List[Tuple[int, int, int, int]] = []
             boxes_for_review: List[Tuple[str, Tuple[int, int, int, int]]] = []
             records: List[Dict[str, Any]] = []
 
             if rng.random() >= negative_fraction:
                 n_objects = rng.randint(1, max_objects)
                 for _ in range(n_objects):
-                    class_name = rng.choice(class_names)
-                    cutout = rng.choice(bank[class_name])
-                    img, alpha = _resize_cutout(rng, cutout, manifest, canvas_w, canvas_h)
-                    x, y = _sample_position(rng, canvas_w, canvas_h, img.width, img.height, partial_fraction, lower_fraction)
-                    bbox = _bbox_from_alpha(alpha, x, y, canvas_w, canvas_h)
-                    if bbox is None:
-                        continue
-                    visible_mask = _visible_mask_from_alpha(alpha, x, y, canvas_w, canvas_h)
-                    segment = _segment_points_from_mask(visible_mask, canvas_w, canvas_h)
-                    if segment is None:
-                        continue
-                    bg.paste(img, (x, y), alpha)
-                    class_id = class_to_id[class_name]
-                    labels.append(_yolo_segment_line(class_id, segment))
-                    boxes_for_review.append((class_name, bbox))
-                    records.append({
-                        "class": class_name,
-                        "handle": cutout.handle,
-                        "bbox_xyxy": list(bbox),
-                        "segment_points": len(segment),
-                    })
+                    for _attempt in range(max_attempts):
+                        class_name = rng.choice(class_names)
+                        cutout = rng.choice(bank[class_name])
+                        img, alpha = _resize_cutout(rng, cutout, manifest, canvas_w, canvas_h)
+                        x, y = _sample_position(
+                            rng,
+                            canvas_w,
+                            canvas_h,
+                            img.width,
+                            img.height,
+                            partial_fraction,
+                            lower_fraction,
+                        )
+                        bbox = _bbox_from_alpha(alpha, x, y, canvas_w, canvas_h)
+                        if bbox is None:
+                            continue
+                        if forbid_overlap and any(_boxes_overlap(bbox, old, padding=4) for old in placed_boxes):
+                            continue
+                        visible_mask = _visible_mask_from_alpha(alpha, x, y, canvas_w, canvas_h)
+                        segment = _segment_points_from_mask(visible_mask, canvas_w, canvas_h)
+                        if segment is None:
+                            continue
+                        bg.paste(img, (x, y), alpha)
+                        placed_boxes.append(bbox)
+                        class_id = class_to_id[class_name]
+                        labels.append(_yolo_segment_line(class_id, segment))
+                        boxes_for_review.append((class_name, bbox))
+                        records.append({
+                            "class": class_name,
+                            "handle": cutout.handle,
+                            "bbox_xyxy": list(bbox),
+                            "segment_points": len(segment),
+                        })
+                        break
 
             stem = f"{out_idx:06d}"
             img_path = out_dir / "images" / split / f"{stem}.jpg"
@@ -453,7 +484,7 @@ def generate_dataset(args: argparse.Namespace) -> None:
             meta.write(json.dumps({
                 "image": str(img_path.relative_to(out_dir)),
                 "label": str(label_path.relative_to(out_dir)),
-                "background": str(bg_paths[source_idx % len(bg_paths)]),
+                "background": str(bg_path),
                 "objects": records,
             }, sort_keys=True) + "\n")
             if len(review) < 25:
