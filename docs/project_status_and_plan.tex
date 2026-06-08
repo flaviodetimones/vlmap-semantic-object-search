@@ -372,12 +372,42 @@ conclusión experimental, sino como comprobación de viabilidad del flujo.
   \caption{Curvas de entrenamiento y validación del smoke test de una época. Su función es verificar el pipeline, no cerrar la evaluación final.}
 \end{figure}
 
+\paragraph{Primer entrenamiento piloto.} Se entrenó el dataset
+\texttt{pilot\_200\_manual\_100bg} durante 30 épocas a \texttt{imgsz=640} y
+\texttt{batch=2}. El entrenamiento paró por early stopping en la época 28 y el
+mejor checkpoint se obtuvo en la época 18:
+\texttt{/shared/yoloe\_finetune/pilot\_200\_e30/weights/best.pt}. En
+validación interna, el modelo alcanzó \texttt{mAP50(B)=0.720},
+\texttt{mAP50-95(B)=0.670}, \texttt{mAP50(M)=0.736} y
+\texttt{mAP50-95(M)=0.647}. Sin embargo, la comparación en el split
+\texttt{test} muestra que todavía no debe sustituir al YOLOE base en navegación:
+
+\begin{center}
+\begin{tabular}{lrrrr}
+\toprule
+Modelo & P(M) & R(M) & mAP50(M) & mAP50-95(M) \\
+\midrule
+YOLOE base & 0.761 & 0.614 & 0.702 & 0.550 \\
+YOLOE adaptado piloto & 0.824 & 0.392 & 0.643 & 0.551 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+El piloto mejora la precisión, pero reduce claramente el recall. Para búsqueda
+semántica el criterio operativo principal es no perder objetos visibles, por lo
+que este checkpoint queda como prueba de viabilidad del pipeline, no como
+modelo recomendado para las evaluaciones end-to-end. La causa probable es que
+200 imágenes son pocas para adaptar el detector sin sobreajuste y el split de
+test contiene muy pocas instancias por clase.
+
 \paragraph{Siguiente experimento.} El siguiente paso es entrenar un primer
-modelo real con el piloto de 200 imágenes, por ejemplo 30 épocas a
-\texttt{imgsz=640} y \texttt{batch=2}, y compararlo contra YOLOE base. Si mejora
-recall sin disparar falsos positivos, se escala a un dataset de mayor tamaño
-(por ejemplo 1500--3000 imágenes) manteniendo la misma escena de fondos para
-entrenamiento y reservando escenas distintas para evaluación end-to-end.
+modelo real con más datos, no más épocas sobre el piloto. La siguiente versión
+debe generar al menos 1500 imágenes sintéticas, aumentar la variedad de
+posiciones y reforzar las clases con peor recall, especialmente \texttt{mug} y
+\texttt{laptop}. Si el nuevo modelo mejora recall sin disparar falsos positivos,
+entonces se usa en las evaluaciones end-to-end mediante \texttt{--yoloe-weights};
+si no, se conserva YOLOE base y se documenta el fine-tuning como análisis
+experimental acotado.
 
 \subsection{Filtros de calidad --- \textcolor{done}{COMPLETADOS}}
 
